@@ -1,0 +1,116 @@
+@import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+Arabic:wght@100;200;300;400;500;600;700&family=Plus+Jakarta+Sans:wght@300;400;500;600;700;800&family=Inter:wght@300;400;500;600;700&family=Tajwal:wght@300;400;500;700;800;900&display=swap');
+@import "tailwindcss";
+
+@theme {
+  --font: "IBM Plex Sans Arabic", "Inter", "Tajwal", sans-serif;
+  --font-sans: "IBM Plex Sans Arabic", "Inter", "Tajwal", ui-sans-serif, system-ui, sans-serif;
+  --font-display: "IBM Plex Sans Arabic", "Tajwal", "Plus Jakarta Sans", sans-serif;
+  --color-brand-primary: #6366f1;
+  --color-brand-secondary: #a855f7;
+  --color-bg-dark: #09090b;
+  --color-bg-sidebar: #0c0c0e;
+  --color-bg-card: #111113;
+}
+
+@layer base {
+  body {
+    @apply bg-bg-dark text-slate-200 antialiased font-sans;
+  }
+}
+
+@utility glass {
+  @apply bg-white/5 backdrop-blur-md border border-white/5;
+}
+
+@utility glass-card {
+  @apply bg-bg-card border border-white/5 rounded-3xl p-6 shadow-xl transition-all duration-300;
+}
+
+@utility premium-gradient {
+  @apply bg-gradient-to-tr from-indigo-600 to-violet-400;
+}
+
+@utility text-gradient {
+  @apply bg-clip-text text-transparent bg-gradient-to-r from-indigo-400 to-violet-400;
+}
+
+@utility sidebar-link {
+  @apply flex items-center gap-3 px-3 py-2 rounded-lg text-sm font-medium transition-colors;
+}
+
+::-webkit-scrollbar {
+  width: 4px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.05);
+  border-radius: 10px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(255, 255, 255, 0.1);
+}
+
+.main-content {
+  max-width: 100vw !important;
+  overflow-x: hidden !important;
+}
+
+@utility bg-grid-pattern {
+  background-size: 50px 50px;
+  background-image: 
+    linear-gradient(to right, rgba(255, 255, 255, 0.02) 1px, transparent 1px),
+    linear-gradient(to bottom, rgba(255, 255, 255, 0.02) 1px, transparent 1px);
+}
+
+@keyframes float-slow {
+  0%, 100% { transform: translateY(0px) rotate(0deg); }
+  50% { transform: translateY(-12px) rotate(1deg); }
+}
+
+@keyframes float-medium {
+  0%, 100% { transform: translateY(0px) rotate(0deg); }
+  50% { transform: translateY(-8px) rotate(-1deg); }
+}
+
+@keyframes grid-drift {
+  0% { background-position: 0 0; }
+  100% { background-position: 50px 50px; }
+}
+
+@utility animate-float-slow {
+  animation: float-slow 8s ease-in-out infinite;
+}
+
+@utility animate-float-medium {
+  animation: float-medium 6s ease-in-out infinite;
+}
+
+@utility animate-grid-drift {
+  animation: grid-drift 20s linear infinite;
+}
+
+@utility perspective-1000 {
+  perspective: 1000px;
+}
+
+@utility preserve-3d {
+  transform-style: preserve-3d;
+}
+
+@utility translate-z-10 {
+  transform: translateZ(10px);
+}
+
+@utility translate-z-20 {
+  transform: translateZ(20px);
+}
+
+@utility translate-z-30 {
+  transform: translateZ(30px);
+}
+

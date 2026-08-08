@@ -1,0 +1,6 @@
+{
+  "name": "HumanOS AI",
+  "description": "Human Development Operating System: AI-powered platform for personality analysis, emotional intelligence, and life coaching.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

@@ -1,0 +1,73 @@
+{
+  "entities": {
+    "User": {
+      "title": "User",
+      "description": "User profile information",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string" },
+        "email": { "type": "string", "format": "email" },
+        "displayName": { "type": "string" },
+        "photoURL": { "type": "string" },
+        "onboardingComplete": { "type": "boolean" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["uid", "email"]
+    },
+    "DnaProfile": {
+      "title": "DNA Profile",
+      "description": "Neural diagnostic results",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string" },
+        "archetype": { "type": "string" },
+        "stability": { "type": "number" },
+        "scores": { "type": "object" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["userId"]
+    },
+    "GrowthJourney": {
+      "title": "Growth Journey",
+      "description": "Active evolution roadmaps",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string" },
+        "title": { "type": "string" },
+        "status": { "type": "string", "enum": ["active", "completed", "paused"] },
+        "mastery": { "type": "number" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      }
+    },
+    "Project": {
+      "title": "Project",
+      "description": "Previous development tasks",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string" },
+        "title": { "type": "string" },
+        "val": { "type": "string" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      }
+    }
+  },
+  "firestore": {
+    "/users/{userId}": {
+      "schema": "User",
+      "description": "User profile document"
+    },
+    "/users/{userId}/dna/current": {
+      "schema": "DnaProfile",
+      "description": "Current DNA profile for the user"
+    },
+    "/users/{userId}/journeys/{journeyId}": {
+      "schema": "GrowthJourney",
+      "description": "Individual growth journeys"
+    },
+    "/users/{userId}/projects/{projectId}": {
+      "schema": "Project",
+      "description": "User projects"
+    }
+  }
+}
