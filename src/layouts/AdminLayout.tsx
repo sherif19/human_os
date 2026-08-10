@@ -71,7 +71,9 @@ export function AdminLayout({ children }: AdminLayoutProps) {
         { path: '/admin?tab=sales', label: t('nav.salesMgmt'), step: 1, roles: ['admin'] },
         { path: '/admin?tab=branding', label: t('nav.brandingSettings'), step: 2, roles: ['admin'] },
         { path: '/admin?tab=payments', label: t('nav.paymentSettings'), step: 3, roles: ['admin'] },
-        { path: '/admin?tab=appointments', label: t('nav.appointments'), step: 4, roles: ['admin'] },
+        { path: '/admin?tab=packages', label: t('nav.packagesSettings'), step: 4, roles: ['admin'] },
+        { path: '/admin?tab=appointments', label: t('nav.appointments'), step: 5, roles: ['admin'] },
+        { path: '/admin?tab=ai', label: t('nav.aiSettings'), step: 6, roles: ['admin'] },
       ]
     }
   ];

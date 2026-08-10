@@ -23,10 +23,12 @@ const firebaseConfig = JSON.parse(
 const firebaseApp = initializeApp(firebaseConfig);
 const db = getFirestore(firebaseApp, firebaseConfig.firestoreDatabaseId);
 
-// Helper to resolve Gemini client dynamically
-async function getGenAIClient(adminId?: string) {
-  let apiKey = process.env.GEMINI_API_KEY || "";
-  
+// Helper to resolve AI configuration dynamically for a tenant
+async function getTenantAIConfig(adminId?: string) {
+  let geminiApiKey = process.env.GEMINI_API_KEY || "";
+  let openaiApiKey = process.env.OPENAI_API_KEY || "";
+  let aiProvider = "gemini";
+
   if (adminId) {
     try {
       const docRef = doc(db, "tenants", adminId);
@@ -34,23 +36,56 @@ async function getGenAIClient(adminId?: string) {
       if (docSnap.exists()) {
         const tenantData = docSnap.data();
         if (tenantData?.geminiApiKey) {
-          apiKey = tenantData.geminiApiKey;
-          console.log(`Using custom Gemini API Key for admin: ${adminId}`);
+          geminiApiKey = tenantData.geminiApiKey;
+        }
+        if (tenantData?.openaiApiKey) {
+          openaiApiKey = tenantData.openaiApiKey;
+        }
+        if (tenantData?.aiProvider) {
+          aiProvider = tenantData.aiProvider;
         }
       }
     } catch (error) {
-      console.error("Error fetching custom Gemini API Key:", error);
+      console.error("Error fetching tenant AI config:", error);
     }
   }
 
-  return new GoogleGenAI({
-    apiKey,
-    httpOptions: {
-      headers: {
-        'User-Agent': 'aistudio-build',
-      }
-    }
+  return { geminiApiKey, openaiApiKey, aiProvider };
+}
+
+// Helper to call OpenAI API using global fetch
+async function callOpenAI(apiKey: string, messages: any[], systemInstruction?: string, jsonMode = false) {
+  const formattedMessages: any[] = [];
+  if (systemInstruction) {
+    formattedMessages.push({ role: "system", content: systemInstruction });
+  }
+  formattedMessages.push(...messages);
+
+  const requestBody: any = {
+    model: "gpt-4o-mini",
+    messages: formattedMessages,
+    temperature: 0.7,
+  };
+  if (jsonMode) {
+    requestBody.response_format = { type: "json_object" };
+  }
+
+  const response = await (globalThis as any).fetch("https://api.openai.com/v1/chat/completions", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "Authorization": `Bearer ${apiKey}`
+    },
+    body: JSON.stringify(requestBody)
   });
+
+  if (!response.ok) {
+    const errorText = await response.text();
+    throw new Error(`OpenAI API request failed: ${errorText}`);
+  }
+
+  const data = await response.json();
+  return data.choices?.[0]?.message?.content || "";
 }
 
 // API Routes
@@ -58,12 +93,185 @@ app.get("/api/health", (req, res) => {
   res.json({ status: "ok" });
 });
 
+// Helper function to calculate psychometric traits locally if AI is unavailable or unconfigured
+function generateLocalPersonalityReport(answers: any, context: any) {
+  const currentScores = context?.currentScores || {
+    confidence: 65,
+    discipline: 48,
+    emotional: 75,
+    charisma: 50,
+    leadership: 60,
+    selfWorth: 55,
+    consistency: 45,
+    focus: 85,
+    social: 40,
+    empathy: 70
+  };
+
+  const metrics = [
+    { key: 'confidence', label: 'Confidence', score: currentScores.confidence },
+    { key: 'discipline', label: 'Discipline', score: currentScores.discipline },
+    { key: 'emotional', label: 'EQ', score: currentScores.emotional },
+    { key: 'charisma', label: 'Charisma', score: currentScores.charisma },
+    { key: 'leadership', label: 'Leadership', score: currentScores.leadership },
+    { key: 'selfWorth', label: 'Self Worth', score: currentScores.selfWorth },
+    { key: 'consistency', label: 'Consistency', score: currentScores.consistency },
+    { key: 'focus', label: 'Focus', score: currentScores.focus },
+    { key: 'social', label: 'Social Energy', score: currentScores.social },
+    { key: 'empathy', label: 'Resilience', score: currentScores.empathy }
+  ];
+
+  const sortedMetrics = [...metrics].sort((a, b) => b.score - a.score);
+  const highest = sortedMetrics[0];
+  const secondHighest = sortedMetrics[1];
+  const lowest = sortedMetrics[metrics.length - 1];
+  const secondLowest = sortedMetrics[metrics.length - 2];
+  const thirdLowest = sortedMetrics[metrics.length - 3];
+
+  let archetype = 'The Strategist';
+  let archetypeAr = 'الاستراتيجي';
+  const hKey1 = highest.key;
+  const hKey2 = secondHighest.key;
+
+  if ((hKey1 === 'focus' && hKey2 === 'discipline') || (hKey1 === 'discipline' && hKey2 === 'focus')) {
+    archetype = 'The Mastermind';
+    archetypeAr = 'المخطط الاستراتيجي';
+  } else if ((hKey1 === 'charisma' && hKey2 === 'social') || (hKey1 === 'social' && hKey2 === 'charisma')) {
+    archetype = 'The Inspiring Leader';
+    archetypeAr = 'القائد الملهم';
+  } else if ((hKey1 === 'empathy' && hKey2 === 'emotional') || (hKey1 === 'emotional' && hKey2 === 'empathy')) {
+    archetype = 'The Harmonizer';
+    archetypeAr = 'المصلح العاطفي';
+  } else if ((hKey1 === 'leadership' && hKey2 === 'confidence') || (hKey1 === 'confidence' && hKey2 === 'leadership')) {
+    archetype = 'The Sovereign';
+    archetypeAr = 'القائد السيادي';
+  } else if ((hKey1 === 'selfWorth' && hKey2 === 'focus') || (hKey1 === 'focus' && hKey2 === 'selfWorth')) {
+    archetype = 'The Independent Thinker';
+    archetypeAr = 'المفكر المستقل';
+  } else if ((hKey1 === 'consistency' && hKey2 === 'discipline') || (hKey1 === 'discipline' && hKey2 === 'consistency')) {
+    archetype = 'The Anchor';
+    archetypeAr = 'المحرك الثابت';
+  }
+
+  const strengthMapEn: Record<string, string> = {
+    confidence: 'High Self-Assurance',
+    discipline: 'Unwavering Discipline',
+    emotional: 'Emotional Self-Awareness',
+    charisma: 'Magnetic Presence',
+    leadership: 'Strategic Command',
+    selfWorth: 'Strong Sense of Identity',
+    consistency: 'Systematic Consistency',
+    focus: 'Deep Work Capacity',
+    social: 'Social Fluidity',
+    empathy: 'Compassionate Empathy'
+  };
+
+  const strengthMapAr: Record<string, string> = {
+    confidence: 'ثقة عالية بالنفس',
+    discipline: 'انضباط ثابت لا يتزعزع',
+    emotional: 'وعي عاطفي ذاتي قوي',
+    charisma: 'حضور مغناطيسي مقنع',
+    leadership: 'قيادة استراتيجية واضحة',
+    selfWorth: 'تقدير ذاتي وهويّة قوية',
+    consistency: 'اتساق سلوكي متكرر',
+    focus: 'قدرة عالية على التركيز',
+    social: 'مرونة تواصل اجتماعي',
+    empathy: 'تعاطف وفهم عميق للغير'
+  };
+
+  const weaknessMapEn: Record<string, string> = {
+    confidence: 'Validation Dependency',
+    discipline: 'Procrastination Vulnerability',
+    emotional: 'Stress Reactivity',
+    charisma: 'Social Hesitation',
+    leadership: 'Delegation Friction',
+    selfWorth: 'Sensitivity to Criticism',
+    consistency: 'Erratic Energy Cycles',
+    focus: 'Cognitive Overload',
+    social: 'Social Battery Depletion',
+    empathy: 'Emotional Detachment'
+  };
+
+  const weaknessMapAr: Record<string, string> = {
+    confidence: 'الحاجة للتأكيد الخارجي',
+    discipline: 'عرضة للتسويف والتأجيل',
+    emotional: 'سرعة الانفعال تحت الضغط',
+    charisma: 'التردد أو القلق الاجتماعي',
+    leadership: 'صعوبة تفويض المهام للغير',
+    selfWorth: 'حساسية مفرطة للنقد',
+    consistency: 'تشتت روتين الطاقة والعمل',
+    focus: 'تشتت ذهني سريع',
+    social: 'سرعة استنزاف الطاقة الاجتماعية',
+    empathy: 'الانفصال العاطفي والتحفظ'
+  };
+
+  const strengths = sortedMetrics.slice(0, 3).map(m => strengthMapEn[m.key]);
+  const strengthsAr = sortedMetrics.slice(0, 3).map(m => strengthMapAr[m.key]);
+  const weaknesses = [lowest, secondLowest, thirdLowest].map(m => weaknessMapEn[m.key]);
+  const weaknessesAr = [lowest, secondLowest, thirdLowest].map(m => weaknessMapAr[m.key]);
+
+  let insight = 'Profile indicates stable analytical performance with potential for emotional growth.';
+  let insightAr = 'يشير ملفك التعريفي إلى أداء تحليلي مستقر مع إمكانية للنمو العاطفي.';
+
+  if (lowest.key === 'social' || lowest.key === 'empathy') {
+    insight = 'System analysis detects a recurring avoidance pattern during social conflicts. Focus on active dialogue.';
+    insightAr = 'يكشف تحليل النظام عن نمط تجنب متكرر أثناء النزاعات الاجتماعية. ركز على الحوار النشط.';
+  } else if (lowest.key === 'discipline' || lowest.key === 'consistency') {
+    insight = 'Behavioral audit reveals fluctuations in baseline habits. Prioritize low-friction micro-missions.';
+    insightAr = 'يكشف التدقيق السلوكي عن تقلبات في العادات الأساسية. ركز على المهام الصغيرة منخفضة الاحتكاك.';
+  } else if (lowest.key === 'focus') {
+    insight = 'Cognitive diagnostic indicates elevated mental load and overthinking loops. Implement strategic silence.';
+    insightAr = 'يشير التشخيص المعرفي إلى ارتفاع الحمل الذهني وحلقات التفكير المفرط. نفذ الصمت الاستراتيجي.';
+  }
+
+  let growthProtocol = '"Phase I focus should be on Cognitive Integration. Balance focus with planned recovery."';
+  let growthProtocolAr = '"يجب أن يكون تركيز المرحلة الأولى على التكامل المعرفي. وازن بين التركيز ودورات الاستشفاء المخططة."';
+
+  if (lowest.key === 'empathy' || lowest.key === 'social') {
+    growthProtocol = '"Phase I focus should be on Social Fluidity. Your current dominance is high-performing in isolation but benefit from active collaborative neural streams."';
+    growthProtocolAr = '"يجب أن يكون تركيز المرحلة الأولى على السيولة الاجتماعية. سيادتك الحالية عالية الأداء في العزلة ولكنها تحتاج إلى تيارات عصبية تعاونية."';
+  } else if (lowest.key === 'discipline') {
+    growthProtocol = '"Phase I focus should be on Baseline Consistency. Build daily micro-habits before increasing difficulty."';
+    growthProtocolAr = '"يجب أن يكون تركيز المرحلة الأولى على الاتساق الأساسي. ابنِ عادات صغيرة يومية قبل زيادة الصعوبة التدريجية."';
+  }
+
+  let protocol01 = 'Execute a 10s Pause during conflict.';
+  let protocol01Ar = 'نفذ توقفاً لمدة 10 ثوانٍ أثناء النزاع.';
+  let protocol02 = 'Record thoughts in Journal immediately.';
+  let protocol02Ar = 'سجل الأفكار في السجل العصبي فوراً.';
+
+  if (lowest.key === 'focus') {
+    protocol01 = 'Perform 4-7-8 Breathing exercises.';
+    protocol01Ar = 'قم بتمارين التنفس 4-7-8 عند التشتت.';
+    protocol02 = 'Audit daily screen-time blocks.';
+    protocol02Ar = 'راقب أوقات تصفح الشاشات اليومية.';
+  } else if (lowest.key === 'discipline') {
+    protocol01 = 'Set a 5-minute timer for start actions.';
+    protocol01Ar = 'اضبط مؤقتاً لـ 5 دقائق للبدء بالمهام.';
+    protocol02 = 'Log habits immediately in Forge.';
+    protocol02Ar = 'سجل عاداتك فوراً في منصة تشكيل العادات.';
+  }
+
+  return {
+    archetype,
+    archetypeAr,
+    insight,
+    insightAr,
+    strengths,
+    strengthsAr,
+    weaknesses,
+    weaknessesAr,
+    growthPath: [growthProtocol],
+    growthPathAr: [growthProtocolAr],
+    recommendations: [protocol01, protocol02],
+    recommendationsAr: [protocol01Ar, protocol02Ar]
+  };
+}
+
 // Personality DNA Analysis Endpoint
 app.post("/api/ai/analyze-personality", async (req, res) => {
   try {
     const { answers, context, memory, adminId } = req.body;
-    
-    const model = "gemini-3-flash-preview";
     
     const prompt = `
       As a multidisciplinary expert team (consisting of a Clinical Psychologist, Behavioral Analyst, Life Coach, and Mindset Mentor), analyze these assessment answers:
@@ -75,9 +283,14 @@ app.post("/api/ai/analyze-personality", async (req, res) => {
       Your goal is to decode the user's "Personality DNA" into a high-density intelligence report. 
       Avoid all generic motivational language. Be specific, clinical yet empathetic, and brutally honest where necessary for growth.
       
+      Provide all fields in both English and Arabic so the UI can toggle languages seamlessly.
+      
       Format the response in JSON:
       {
-        "archetype": "A creative and distinct name for their personality pattern (e.g., 'The Relentless Optimizer', 'The Guarded Visionary')",
+        "archetype": "A creative and distinct name for their personality pattern in English (e.g., 'The Relentless Optimizer', 'The Guarded Visionary')",
+        "archetypeAr": "Arabic translation of the archetype",
+        "insight": "A 1-2 sentence clinical insight in English (e.g., 'System analysis detects a recurring avoidance pattern during social conflicts.')",
+        "insightAr": "Arabic translation of the insight",
         "scores": { 
           "confidence": number, 
           "discipline": number, 
@@ -90,27 +303,69 @@ app.post("/api/ai/analyze-personality", async (req, res) => {
           "consistency": number,
           "resilience": number
         },
-        "strengths": ["list 3-5 very specific high-performing behaviors detected"],
-        "weaknesses": ["list 3-5 specific psychological friction points or avoidance patterns"],
-        "hiddenPatterns": ["Describe 2-3 'under the radar' behaviors the AI detected in the data (e.g., 'Your tendency to use logic to avoid emotional discomfort')"],
-        "growthPath": ["A 3-step high-level protocol for the next 30 days"],
-        "recommendations": ["specific actionable tools or missions to initialize"]
+        "strengths": ["list 3-5 very specific high-performing behaviors detected in English"],
+        "strengthsAr": ["Arabic translation of the strengths"],
+        "weaknesses": ["list 3-5 specific psychological friction points or avoidance patterns in English"],
+        "weaknessesAr": ["Arabic translation of the weaknesses"],
+        "hiddenPatterns": ["Describe 2-3 'under the radar' behaviors the AI detected in the data in English (e.g., 'Your tendency to use logic to avoid emotional discomfort')"],
+        "hiddenPatternsAr": ["Arabic translation of the hidden patterns"],
+        "growthPath": ["A 3-step high-level protocol for the next 30 days in English"],
+        "growthPathAr": ["Arabic translation of the growth path"],
+        "recommendations": ["specific actionable tools or missions to initialize in English"],
+        "recommendationsAr": ["Arabic translation of the recommendations"]
       }
       All scores should be between 0 and 100 based on the data provided.
     `;
 
-    const genAIClient = await getGenAIClient(adminId);
-    const result = await genAIClient.models.generateContent({
-      model,
-      contents: [{ parts: [{ text: prompt }] }],
-      config: {
-        responseMimeType: "application/json"
-      }
-    });
+    const aiConfig = await getTenantAIConfig(adminId);
+    let resultText = "";
+    let useFallback = false;
 
-    res.json(JSON.parse(result.text || "{}"));
+    // Check if we have a valid key for the chosen provider
+    const hasKey = aiConfig.aiProvider === "openai" 
+      ? !!aiConfig.openaiApiKey 
+      : !!(aiConfig.geminiApiKey || process.env.GEMINI_API_KEY);
+
+    if (!hasKey) {
+      console.log("No API Key configured for the active AI provider, using local psychometric fallback");
+      useFallback = true;
+    } else {
+      try {
+        if (aiConfig.aiProvider === "openai" && aiConfig.openaiApiKey) {
+          console.log(`Using OpenAI (GPT) for personality analysis (adminId: ${adminId})`);
+          resultText = await callOpenAI(
+            aiConfig.openaiApiKey,
+            [{ role: "user", content: prompt }],
+            "You are an expert psychology and behavioral analysis system.",
+            true
+          );
+        } else {
+          console.log(`Using Gemini for personality analysis (adminId: ${adminId})`);
+          const genAIClient = new GoogleGenAI({
+            apiKey: aiConfig.geminiApiKey || process.env.GEMINI_API_KEY || "",
+            httpOptions: { headers: { 'User-Agent': 'aistudio-build' } }
+          });
+          const result = await genAIClient.models.generateContent({
+            model: "gemini-3-flash-preview",
+            contents: [{ parts: [{ text: prompt }] }],
+            config: { responseMimeType: "application/json" }
+          });
+          resultText = result.text || "{}";
+        }
+      } catch (error) {
+        console.error("AI API call failed, falling back to local algorithm:", error);
+        useFallback = true;
+      }
+    }
+
+    if (useFallback) {
+      const fallbackReport = generateLocalPersonalityReport(answers, context);
+      res.json(fallbackReport);
+    } else {
+      res.json(JSON.parse(resultText));
+    }
   } catch (error: any) {
-    console.error("Gemini Personality Analysis Error:", error);
+    console.error("Personality Analysis Endpoint Error:", error);
     res.status(500).json({ error: error.message });
   }
 });
@@ -138,6 +393,7 @@ app.post("/api/ai/coach", async (req, res) => {
       2. No generic motivational talk. Tell the user what they NEED to hear based on their data.
       3. Use their Personality DNA to personalize every strategy.
       4. If they have a 'Strategist' archetype, speak in models and logic. If they have an 'Empathetic' archetype, speak in feelings and connection.
+      5. Language Mirroring: Always respond in the same language that the user is messaging you in. If they message you in Arabic, respond in Arabic. If English, in English.
       
       USER DNA CONTEXT:
       ${JSON.stringify(personalityData)}
@@ -151,19 +407,35 @@ app.post("/api/ai/coach", async (req, res) => {
       - Always end with a challenging question or a precise next step.
     `;
 
-    const model = "gemini-3-flash-preview";
-    const genAIClient = await getGenAIClient(adminId);
-    const result = await genAIClient.models.generateContent({
-      model,
-      contents: [{ parts: [{ text: message }] }],
-      config: {
-        systemInstruction
-      }
-    });
+    const aiConfig = await getTenantAIConfig(adminId);
+    let responseText = "";
 
-    res.json({ response: result.text });
+    if (aiConfig.aiProvider === "openai" && aiConfig.openaiApiKey) {
+      console.log(`Using OpenAI (GPT) for coaching (adminId: ${adminId})`);
+      responseText = await callOpenAI(
+        aiConfig.openaiApiKey,
+        [{ role: "user", content: message }],
+        systemInstruction
+      );
+    } else {
+      console.log(`Using Gemini for coaching (adminId: ${adminId})`);
+      const genAIClient = new GoogleGenAI({
+        apiKey: aiConfig.geminiApiKey || process.env.GEMINI_API_KEY || "",
+        httpOptions: { headers: { 'User-Agent': 'aistudio-build' } }
+      });
+      const result = await genAIClient.models.generateContent({
+        model: "gemini-3-flash-preview",
+        contents: [{ parts: [{ text: message }] }],
+        config: {
+          systemInstruction
+        }
+      });
+      responseText = result.text || "";
+    }
+
+    res.json({ response: responseText });
   } catch (error: any) {
-    console.error("Gemini Coach Error:", error);
+    console.error("Coaching Error:", error);
     res.status(500).json({ error: error.message });
   }
 });

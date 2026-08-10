@@ -4,6 +4,37 @@ import { useAuth, User } from '../hooks/useAuth';
 import { useLanguage } from '../contexts/LanguageContext';
 import { translations, TranslationKey } from '../lib/translations';
 import { db, storage, libStorage } from '../lib/firebase';
+import { DEFAULT_PACKAGES, TenantPackages } from '../lib/subscription';
+
+const toolNamesMapEn: Record<string, string> = {
+  neural_tests: 'Neural Diagnostic Tests',
+  personality_dna: 'Personality DNA Mapping',
+  archetype: 'Core Archetype Analysis',
+  growth_velocity: 'Growth Velocity Tracking',
+  growth_lab: 'Growth Lab Tasks',
+  emotional_iq: 'Emotional IQ Analysis',
+  social_iq: 'Social IQ Assessment',
+  cog_load: 'Cognitive Load Diagnostics',
+  toxicity: 'Toxicity Shield & Battery',
+  ai_coach: 'AI Coach Conversations',
+  book_appointment: 'Appointment Booking Requests',
+  library: 'Data Resource Library'
+};
+
+const toolNamesMapAr: Record<string, string> = {
+  neural_tests: 'الاختبارات العصبية التشخيصية',
+  personality_dna: 'رسم خرائط الحمض النووي للشخصية',
+  archetype: 'تحليل النموذج والذات العميقة',
+  growth_velocity: 'مؤشر سرعة النمو الشخصي',
+  growth_lab: 'مهام مختبر النمو العصبي',
+  emotional_iq: 'مقياس ذكاء المشاعر والانفعالات',
+  social_iq: 'مقياس الذكاء الاجتماعي والعلاقات',
+  cog_load: 'الحمل المعرفي والسبل العميقة',
+  toxicity: 'مصفوفة درع السمية والطاقة',
+  ai_coach: 'جلسات مدرب الذكاء الاصطناعي',
+  book_appointment: 'حجز واستشارة المواعيد الخاصة',
+  library: 'مكتبة الموارد والبيانات الكاملة'
+};
 import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
 import {
   collection,
@@ -67,6 +98,7 @@ interface TenantConfig {
   paymentMethods?: PaymentMethods;
   whatsappNumber?: string;
   freeTrial?: { enabled: boolean; days: number };
+  packages?: TenantPackages;
 }
 
 interface PaymentRecord {
@@ -148,8 +180,37 @@ export default function Billing() {
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [paddleLoading, setPaddleLoading] = useState(false);
 
-  const planInfo = tenantConfig?.plan || DEFAULT_PLAN;
-  const isPlanVisible = tenantConfig?.plan?.visible !== false;
+  const packagesList: TenantPackages = tenantConfig?.packages || DEFAULT_PACKAGES;
+  const [selectedPlanTier, setSelectedPlanTier] = useState<'bronze' | 'silver' | 'gold'>('bronze');
+
+  useEffect(() => {
+    if (packagesList) {
+      const enabledTiers = (['bronze', 'silver', 'gold'] as const).filter(
+        t => packagesList[t]?.enabled !== false
+      );
+      if (enabledTiers.length > 0 && !enabledTiers.includes(selectedPlanTier)) {
+        setSelectedPlanTier(enabledTiers[0]);
+      }
+    }
+  }, [packagesList]);
+  const planInfo = {
+    visible: true,
+    name: language === 'ar' ? packagesList[selectedPlanTier].nameAr : packagesList[selectedPlanTier].nameEn,
+    nameEn: packagesList[selectedPlanTier].nameEn,
+    price: packagesList[selectedPlanTier].price,
+    currency: packagesList[selectedPlanTier].currency,
+    currencyEn: packagesList[selectedPlanTier].currencyEn,
+    period: language === 'ar' ? packagesList[selectedPlanTier].period : packagesList[selectedPlanTier].periodEn,
+    periodEn: packagesList[selectedPlanTier].periodEn,
+    badge: selectedPlanTier === 'silver' ? (language === 'ar' ? 'الأكثر شعبية' : 'Most Popular') : '',
+    badgeEn: selectedPlanTier === 'silver' ? 'Most Popular' : '',
+    features: (packagesList[selectedPlanTier].unlockedTools || []).map(k => language === 'ar' ? toolNamesMapAr[k] || k : toolNamesMapEn[k] || k),
+    featuresEn: (packagesList[selectedPlanTier].unlockedTools || []).map(k => toolNamesMapEn[k] || k),
+    ctaText: language === 'ar' ? 'اشترك الآن' : 'Subscribe Now',
+    ctaTextEn: 'Subscribe Now',
+    paddlePriceId: (packagesList[selectedPlanTier] as any).paddlePriceId || tenantConfig?.plan?.paddlePriceId
+  };
+  const isPlanVisible = true;
 
   const hasConfiguredMethods = tenantConfig?.paymentMethods && 
     Object.values(tenantConfig.paymentMethods).some((m: any) => m?.enabled === true);
@@ -638,377 +699,403 @@ export default function Billing() {
         </div>
       </div>
 
-      {/* Configured pricing period if visible */}
-      {isPlanVisible && (
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-          {/* Plan Info Card */}
-          <div className="glass-card md:col-span-1 border border-indigo-500/10 flex flex-col justify-between">
-            <div>
-              <div className="flex justify-between items-start">
-                <h4 className="text-lg font-black text-white tracking-tight uppercase">
-                  {language === 'ar' ? planInfo.name : planInfo.nameEn}
-                </h4>
-                {planInfo.badge && (
-                  <span className="px-2 py-0.5 bg-brand-primary/10 border border-brand-primary/20 text-brand-primary text-[8px] font-black uppercase rounded">
-                    {language === 'ar' ? planInfo.badge : planInfo.badgeEn}
+      {/* Three Evolution Tiers Side-by-Side */}
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+        {(['bronze', 'silver', 'gold'] as const)
+          .filter(tier => (packagesList[tier] || DEFAULT_PACKAGES[tier]).enabled !== false)
+          .map((tier) => {
+            const plan = packagesList[tier] || DEFAULT_PACKAGES[tier];
+          const isSelected = selectedPlanTier === tier;
+          const isUserCurrent = user?.subscriptionTier === tier && isActive;
+          
+          const tierColors = {
+            bronze: { text: '#cd7f32', border: 'rgba(205, 127, 50, 0.2)', bg: 'rgba(205, 127, 50, 0.03)' },
+            silver: { text: '#c0c0c0', border: 'rgba(192, 192, 192, 0.2)', bg: 'rgba(192, 192, 192, 0.03)' },
+            gold: { text: '#ffd700', border: 'rgba(255, 215, 0, 0.2)', bg: 'rgba(255, 215, 0, 0.03)' }
+          };
+          const colors = tierColors[tier];
+
+          return (
+            <div 
+              key={tier}
+              onClick={() => {
+                setSelectedPlanTier(tier);
+                setSelectedMethod(null);
+              }}
+              className={`glass-card border flex flex-col justify-between cursor-pointer transition-all duration-300 hover:scale-[1.02] ${
+                isSelected 
+                  ? 'border-brand-primary shadow-lg shadow-brand-primary/5' 
+                  : 'border-white/5 hover:border-white/10'
+              }`}
+              style={{
+                background: isSelected ? 'rgba(99,102,241,0.03)' : 'rgba(255,255,255,0.01)'
+              }}
+            >
+              <div>
+                <div className="flex justify-between items-start">
+                  <h4 className="text-lg font-black tracking-tight uppercase" style={{ color: colors.text }}>
+                    {language === 'ar' ? plan.nameAr : plan.nameEn}
+                  </h4>
+                  {isUserCurrent && (
+                    <span className="px-2 py-0.5 bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 text-[8px] font-black uppercase rounded">
+                      {language === 'ar' ? 'باقاتك الحالية' : 'Current Plan'}
+                    </span>
+                  )}
+                </div>
+
+                <div className="mt-4 flex items-baseline gap-1 text-white">
+                  <span className="text-3xl font-black">{plan.price}</span>
+                  <span className="text-xs font-bold text-slate-400 font-mono">
+                    {language === 'ar' ? plan.currency : plan.currencyEn} / {language === 'ar' ? plan.period : plan.periodEn}
                   </span>
+                </div>
+
+                <div className="text-[9px] uppercase tracking-wider text-slate-500 font-bold mt-4 mb-2">
+                  {language === 'ar' ? 'الأدوات والميزات المتاحة:' : 'Unlocked Tools & Features:'}
+                </div>
+                <ul className="space-y-2 text-[11px] text-slate-400 font-semibold max-h-[220px] overflow-y-auto no-scrollbar">
+                  {(plan.unlockedTools || []).map((toolKey) => {
+                    const toolName = language === 'ar' ? toolNamesMapAr[toolKey] || toolKey : toolNamesMapEn[toolKey] || toolKey;
+                    return (
+                      <li key={toolKey} className="flex items-center gap-2">
+                        <CheckCircle2 size={12} className="text-brand-primary flex-shrink-0" />
+                        <span>{toolName}</span>
+                      </li>
+                    );
+                  })}
+                </ul>
+              </div>
+
+              <button
+                type="button"
+                className={`w-full py-2.5 rounded-xl text-xs font-black uppercase tracking-widest transition-all mt-6 ${
+                  isSelected
+                    ? 'bg-brand-primary text-white shadow-lg shadow-brand-primary/20'
+                    : 'bg-white/5 border border-white/5 text-slate-400 hover:text-white'
+                }`}
+              >
+                {isSelected 
+                  ? (language === 'ar' ? 'تم اختيار الباقة' : 'Plan Selected') 
+                  : (language === 'ar' ? 'اختر الباقة' : 'Choose Plan')}
+              </button>
+            </div>
+          );
+        })}
+      </div>
+
+      {/* Payment Selection for Selected Tier */}
+      <div className="glass-card border border-white/5 flex flex-col justify-between">
+        <div>
+          <h3 className="text-[10px] font-black uppercase tracking-widest text-slate-500 mb-2">
+            {language === 'ar' 
+              ? `إتمام عملية الدفع لباقة: ${planInfo.name}`
+              : `Complete payment for: ${planInfo.nameEn}`}
+          </h3>
+          <p className="text-slate-400 text-xs font-medium mb-6">
+            {language === 'ar'
+              ? `حدد طريقة الدفع المفضلة لديك لتحويل مبلغ ${planInfo.price} ${planInfo.currency}.`
+              : `Select your preferred payment gateway to transfer ${planInfo.price} ${planInfo.currencyEn}.`}
+          </p>
+
+          {/* Duplicate check constraint: locked pending status */}
+          {pendingPayment ? (
+            <div className="p-6 bg-amber-500/10 border border-amber-500/20 rounded-2xl flex flex-col items-center text-center space-y-4">
+              <Clock size={36} className="text-amber-500 animate-spin" />
+              <h4 className="text-sm font-black text-white uppercase tracking-tight">
+                {t('branding.receiptSubmittedTitle')}
+              </h4>
+              <p className="text-xs text-slate-400 max-w-sm leading-relaxed">
+                {t('branding.receiptSubmittedDesc')}
+              </p>
+              <div className="w-full pt-4 border-t border-white/5 text-[11px] text-slate-500 font-mono space-y-1 text-start">
+                <div>{language === 'ar' ? 'المبلغ:' : 'Amount:'} {pendingPayment.amount} {pendingPayment.currency}</div>
+                <div>{language === 'ar' ? 'الباقة:' : 'Plan:'} {pendingPayment.planName}</div>
+                <div>{language === 'ar' ? 'طريقة التحويل:' : 'Method:'} <span className="capitalize">{pendingPayment.paymentMethod}</span></div>
+                <div>
+                  {language === 'ar' ? 'تاريخ التقديم:' : 'Submitted:'} 
+                  {pendingPayment.createdAt?.toDate 
+                    ? pendingPayment.createdAt.toDate().toLocaleString(dateLocale) 
+                    : pendingPayment.createdAt ? new Date(pendingPayment.createdAt.seconds * 1000).toLocaleString(dateLocale) : '—'}
+                </div>
+              </div>
+            </div>
+          ) : (
+            <div className="space-y-4">
+              <div className="grid grid-cols-2 gap-3">
+                {/* Vodafone Cash */}
+                {activePaymentMethods.vodafone?.enabled && (
+                  <button
+                    onClick={() => setSelectedMethod('vodafone')}
+                    className={`p-4 border rounded-2xl flex flex-col items-center justify-center text-center gap-2 transition-all ${
+                      selectedMethod === 'vodafone'
+                        ? 'bg-red-500/10 border-red-500/30 text-white'
+                        : 'bg-white/5 border-white/5 text-slate-400 hover:text-white'
+                    }`}
+                  >
+                    <Smartphone size={18} className={selectedMethod === 'vodafone' ? 'text-red-500' : 'text-slate-500'} />
+                    <span className="text-[11px] font-black uppercase tracking-widest">{t('branding.paymentVodafoneCash')}</span>
+                  </button>
+                )}
+
+                {/* Etisalat Cash */}
+                {activePaymentMethods.etisalat?.enabled && (
+                  <button
+                    onClick={() => setSelectedMethod('etisalat')}
+                    className={`p-4 border rounded-2xl flex flex-col items-center justify-center text-center gap-2 transition-all ${
+                      selectedMethod === 'etisalat'
+                        ? 'bg-emerald-500/10 border-emerald-500/30 text-white'
+                        : 'bg-white/5 border-white/5 text-slate-400 hover:text-white'
+                    }`}
+                  >
+                    <Smartphone size={18} className={selectedMethod === 'etisalat' ? 'text-emerald-500' : 'text-slate-500'} />
+                    <span className="text-[11px] font-black uppercase tracking-widest">{t('branding.paymentEtisalatCash')}</span>
+                  </button>
+                )}
+
+                {/* Orange Cash */}
+                {activePaymentMethods.orange?.enabled && (
+                  <button
+                    onClick={() => setSelectedMethod('orange')}
+                    className={`p-4 border rounded-2xl flex flex-col items-center justify-center text-center gap-2 transition-all ${
+                      selectedMethod === 'orange'
+                        ? 'bg-orange-500/10 border-orange-500/30 text-white'
+                        : 'bg-white/5 border-white/5 text-slate-400 hover:text-white'
+                    }`}
+                  >
+                    <Smartphone size={18} className={selectedMethod === 'orange' ? 'text-orange-500' : 'text-slate-500'} />
+                    <span className="text-[11px] font-black uppercase tracking-widest">{t('branding.paymentOrangeCash')}</span>
+                  </button>
+                )}
+
+                {/* InstaPay */}
+                {activePaymentMethods.instapay?.enabled && (
+                  <button
+                    onClick={() => setSelectedMethod('instapay')}
+                    className={`p-4 border rounded-2xl flex flex-col items-center justify-center text-center gap-2 transition-all ${
+                      selectedMethod === 'instapay'
+                        ? 'bg-purple-500/10 border-purple-500/30 text-white'
+                        : 'bg-white/5 border-white/5 text-slate-400 hover:text-white'
+                    }`}
+                  >
+                    <span className={`text-[15px] font-black ${selectedMethod === 'instapay' ? 'text-purple-400' : 'text-slate-500'}`}>⚡</span>
+                    <span className="text-[11px] font-black uppercase tracking-widest">{t('branding.paymentInstapay')}</span>
+                  </button>
+                )}
+
+                {/* PayPal */}
+                {activePaymentMethods.paypal?.enabled && (
+                  <button
+                    onClick={() => setSelectedMethod('paypal')}
+                    className={`p-4 border rounded-2xl flex flex-col items-center justify-center text-center gap-2 transition-all ${
+                      selectedMethod === 'paypal'
+                        ? 'bg-blue-500/10 border-blue-500/30 text-white'
+                        : 'bg-white/5 border-white/5 text-slate-400 hover:text-white'
+                    }`}
+                  >
+                    <span className={`text-[15px] ${selectedMethod === 'paypal' ? 'text-blue-400' : 'text-slate-500'}`}>🌐</span>
+                    <span className="text-[11px] font-black uppercase tracking-widest">{t('branding.paymentPaypal')}</span>
+                  </button>
+                )}
+
+                {/* Stripe */}
+                {activePaymentMethods.stripe?.enabled && (
+                  <button
+                    onClick={() => setSelectedMethod('stripe')}
+                    className={`p-4 border rounded-2xl flex flex-col items-center justify-center text-center gap-2 transition-all ${
+                      selectedMethod === 'stripe'
+                        ? 'bg-indigo-500/10 border-indigo-500/30 text-white'
+                        : 'bg-white/5 border-white/5 text-slate-400 hover:text-white'
+                    }`}
+                  >
+                    <CreditCard size={18} className={selectedMethod === 'stripe' ? 'text-indigo-400' : 'text-slate-500'} />
+                    <span className="text-[11px] font-black uppercase tracking-widest">{t('branding.paymentStripe')}</span>
+                  </button>
+                )}
+
+                {/* Paddle */}
+                {activePaymentMethods.paddle?.enabled && (
+                  <button
+                    onClick={() => setSelectedMethod('paddle')}
+                    className={`p-4 border rounded-2xl flex flex-col items-center justify-center text-center gap-2 transition-all ${
+                      selectedMethod === 'paddle'
+                        ? 'bg-sky-500/10 border-sky-500/30 text-white'
+                        : 'bg-white/5 border-white/5 text-slate-400 hover:text-white'
+                    }`}
+                  >
+                    <CreditCard size={18} className={selectedMethod === 'paddle' ? 'text-sky-400' : 'text-slate-500'} />
+                    <span className="text-[11px] font-black uppercase tracking-widest">{t('branding.paymentPaddle')}</span>
+                  </button>
                 )}
               </div>
 
-              <div className="mt-4 flex items-baseline gap-1 text-white">
-                <span className="text-3xl font-black">{planInfo.price}</span>
-                <span className="text-xs font-bold text-slate-400">
-                  {language === 'ar' ? planInfo.currency : planInfo.currencyEn} / {language === 'ar' ? planInfo.period : planInfo.periodEn}
-                </span>
-              </div>
-
-              <ul className="mt-6 space-y-2 text-[11px] text-slate-400 font-semibold">
-                {(language === 'ar' ? planInfo.features : planInfo.featuresEn).map((feat, i) => (
-                  <li key={i} className="flex items-start gap-2">
-                    <CheckCircle2 size={13} className="text-emerald-500 mt-0.5 flex-shrink-0" />
-                    <span>{feat}</span>
-                  </li>
-                ))}
-              </ul>
-            </div>
-            
-            {tenantConfig?.whatsappNumber && (
-              <div className="mt-8 pt-4 border-t border-white/5">
-                <a
-                  href={`https://wa.me/${tenantConfig.whatsappNumber}`}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="w-full py-2 bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 text-[10px] font-black uppercase tracking-widest rounded-xl hover:bg-emerald-500/20 transition-all flex items-center justify-center gap-1.5"
-                >
-                  <Smartphone size={12} />
-                  <span>{language === 'ar' ? 'الدعم الفني عبر واتساب' : 'WhatsApp Support'}</span>
-                </a>
-              </div>
-            )}
-          </div>
-
-          {/* Payment gateways selection */}
-          <div className="glass-card md:col-span-2 border border-white/5 flex flex-col justify-between">
-            <div>
-              <h3 className="text-[10px] font-black uppercase tracking-widest text-slate-500 mb-4">
-                {t('branding.selectPaymentMethod')}
-              </h3>
-
-              {/* Duplicate check constraint: locked pending status */}
-              {pendingPayment ? (
-                <div className="p-6 bg-amber-500/10 border border-amber-500/20 rounded-2xl flex flex-col items-center text-center space-y-4">
-                  <Clock size={36} className="text-amber-500 animate-spin" />
-                  <h4 className="text-sm font-black text-white uppercase tracking-tight">
-                    {t('branding.receiptSubmittedTitle')}
-                  </h4>
-                  <p className="text-xs text-slate-400 max-w-sm leading-relaxed">
-                    {t('branding.receiptSubmittedDesc')}
-                  </p>
-                  <div className="w-full pt-4 border-t border-white/5 text-[11px] text-slate-500 font-mono space-y-1 text-start">
-                    <div>{language === 'ar' ? 'المبلغ:' : 'Amount:'} {pendingPayment.amount} {pendingPayment.currency}</div>
-                    <div>{language === 'ar' ? 'طريقة التحويل:' : 'Method:'} <span className="capitalize">{pendingPayment.paymentMethod}</span></div>
-                    <div>
-                      {language === 'ar' ? 'تاريخ التقديم:' : 'Submitted:'} 
-                      {pendingPayment.createdAt?.toDate 
-                        ? pendingPayment.createdAt.toDate().toLocaleString(dateLocale) 
-                        : pendingPayment.createdAt ? new Date(pendingPayment.createdAt.seconds * 1000).toLocaleString(dateLocale) : '—'}
+              {/* Manual Payment detail view & receipt upload */}
+              {selectedMethod && selectedMethod !== 'stripe' && selectedMethod !== 'paddle' && (
+                <div className="pt-4 border-t border-white/5 space-y-4">
+                  <div className="p-4 bg-white/5 rounded-2xl border border-white/5 text-xs font-medium text-slate-300">
+                    <div className="text-[10px] font-black uppercase tracking-widest text-slate-500 mb-2">
+                      {t('branding.manualPaymentInstructions')}
                     </div>
-                  </div>
-                </div>
-              ) : (
-                <div className="space-y-4">
-                  <div className="grid grid-cols-2 gap-3">
-                    {/* Vodafone Cash */}
-                    {activePaymentMethods.vodafone?.enabled && (
-                      <button
-                        onClick={() => setSelectedMethod('vodafone')}
-                        className={`p-4 border rounded-2xl flex flex-col items-center justify-center text-center gap-2 transition-all ${
-                          selectedMethod === 'vodafone'
-                            ? 'bg-red-500/10 border-red-500/30 text-white'
-                            : 'bg-white/5 border-white/5 text-slate-400 hover:text-white'
-                        }`}
-                      >
-                        <Smartphone size={18} className={selectedMethod === 'vodafone' ? 'text-red-500' : 'text-slate-500'} />
-                        <span className="text-[11px] font-black uppercase tracking-widest">{t('branding.paymentVodafoneCash')}</span>
-                      </button>
-                    )}
 
-                    {/* Etisalat Cash */}
-                    {activePaymentMethods.etisalat?.enabled && (
-                      <button
-                        onClick={() => setSelectedMethod('etisalat')}
-                        className={`p-4 border rounded-2xl flex flex-col items-center justify-center text-center gap-2 transition-all ${
-                          selectedMethod === 'etisalat'
-                            ? 'bg-emerald-500/10 border-emerald-500/30 text-white'
-                            : 'bg-white/5 border-white/5 text-slate-400 hover:text-white'
-                        }`}
-                      >
-                        <Smartphone size={18} className={selectedMethod === 'etisalat' ? 'text-emerald-500' : 'text-slate-500'} />
-                        <span className="text-[11px] font-black uppercase tracking-widest">{t('branding.paymentEtisalatCash')}</span>
-                      </button>
-                    )}
-
-                    {/* Orange Cash */}
-                    {activePaymentMethods.orange?.enabled && (
-                      <button
-                        onClick={() => setSelectedMethod('orange')}
-                        className={`p-4 border rounded-2xl flex flex-col items-center justify-center text-center gap-2 transition-all ${
-                          selectedMethod === 'orange'
-                            ? 'bg-orange-500/10 border-orange-500/30 text-white'
-                            : 'bg-white/5 border-white/5 text-slate-400 hover:text-white'
-                        }`}
-                      >
-                        <Smartphone size={18} className={selectedMethod === 'orange' ? 'text-orange-500' : 'text-slate-500'} />
-                        <span className="text-[11px] font-black uppercase tracking-widest">{t('branding.paymentOrangeCash')}</span>
-                      </button>
-                    )}
-
-                    {/* InstaPay */}
-                    {activePaymentMethods.instapay?.enabled && (
-                      <button
-                        onClick={() => setSelectedMethod('instapay')}
-                        className={`p-4 border rounded-2xl flex flex-col items-center justify-center text-center gap-2 transition-all ${
-                          selectedMethod === 'instapay'
-                            ? 'bg-purple-500/10 border-purple-500/30 text-white'
-                            : 'bg-white/5 border-white/5 text-slate-400 hover:text-white'
-                        }`}
-                      >
-                        <span className={`text-[15px] font-black ${selectedMethod === 'instapay' ? 'text-purple-400' : 'text-slate-500'}`}>⚡</span>
-                        <span className="text-[11px] font-black uppercase tracking-widest">{t('branding.paymentInstapay')}</span>
-                      </button>
-                    )}
-
-                    {/* PayPal */}
-                    {activePaymentMethods.paypal?.enabled && (
-                      <button
-                        onClick={() => setSelectedMethod('paypal')}
-                        className={`p-4 border rounded-2xl flex flex-col items-center justify-center text-center gap-2 transition-all ${
-                          selectedMethod === 'paypal'
-                            ? 'bg-blue-500/10 border-blue-500/30 text-white'
-                            : 'bg-white/5 border-white/5 text-slate-400 hover:text-white'
-                        }`}
-                      >
-                        <span className={`text-[15px] ${selectedMethod === 'paypal' ? 'text-blue-400' : 'text-slate-500'}`}>🌐</span>
-                        <span className="text-[11px] font-black uppercase tracking-widest">{t('branding.paymentPaypal')}</span>
-                      </button>
-                    )}
-
-                    {/* Stripe */}
-                    {activePaymentMethods.stripe?.enabled && (
-                      <button
-                        onClick={() => setSelectedMethod('stripe')}
-                        className={`p-4 border rounded-2xl flex flex-col items-center justify-center text-center gap-2 transition-all ${
-                          selectedMethod === 'stripe'
-                            ? 'bg-indigo-500/10 border-indigo-500/30 text-white'
-                            : 'bg-white/5 border-white/5 text-slate-400 hover:text-white'
-                        }`}
-                      >
-                        <CreditCard size={18} className={selectedMethod === 'stripe' ? 'text-indigo-400' : 'text-slate-500'} />
-                        <span className="text-[11px] font-black uppercase tracking-widest">{t('branding.paymentStripe')}</span>
-                      </button>
-                    )}
-
-                    {/* Paddle */}
-                    {activePaymentMethods.paddle?.enabled && (
-                      <button
-                        onClick={() => setSelectedMethod('paddle')}
-                        className={`p-4 border rounded-2xl flex flex-col items-center justify-center text-center gap-2 transition-all ${
-                          selectedMethod === 'paddle'
-                            ? 'bg-sky-500/10 border-sky-500/30 text-white'
-                            : 'bg-white/5 border-white/5 text-slate-400 hover:text-white'
-                        }`}
-                      >
-                        <CreditCard size={18} className={selectedMethod === 'paddle' ? 'text-sky-400' : 'text-slate-500'} />
-                        <span className="text-[11px] font-black uppercase tracking-widest">{t('branding.paymentPaddle')}</span>
-                      </button>
-                    )}
-                  </div>
-
-                  {/* Manual Payment detail view & receipt upload */}
-                  {selectedMethod && selectedMethod !== 'stripe' && selectedMethod !== 'paddle' && (
-                    <div className="pt-4 border-t border-white/5 space-y-4">
-                      <div className="p-4 bg-white/5 rounded-2xl border border-white/5 text-xs font-medium text-slate-300">
-                        <div className="text-[10px] font-black uppercase tracking-widest text-slate-500 mb-2">
-                          {t('branding.manualPaymentInstructions')}
-                        </div>
-
-                        {selectedMethod === 'vodafone' && (
-                          <div className="flex justify-between items-center bg-[#09090b] px-4 py-2.5 rounded-xl border border-white/5">
-                            <span className="font-mono text-white text-[13px]">{activePaymentMethods.vodafone?.number}</span>
-                            <button
-                              onClick={() => copyToClipboard(activePaymentMethods.vodafone?.number || '', 'vodafone')}
-                              className="text-slate-500 hover:text-white transition-all flex items-center gap-1 text-[10px] uppercase font-black tracking-widest"
-                            >
-                              {copiedField === 'vodafone' ? <Check size={12} className="text-emerald-500" /> : <Copy size={12} />}
-                              <span>{copiedField === 'vodafone' ? t('branding.copied') : t('branding.copyDetails')}</span>
-                            </button>
-                          </div>
-                        )}
-
-                        {selectedMethod === 'etisalat' && (
-                          <div className="flex justify-between items-center bg-[#09090b] px-4 py-2.5 rounded-xl border border-white/5">
-                            <span className="font-mono text-white text-[13px]">{activePaymentMethods.etisalat?.number}</span>
-                            <button
-                              onClick={() => copyToClipboard(activePaymentMethods.etisalat?.number || '', 'etisalat')}
-                              className="text-slate-500 hover:text-white transition-all flex items-center gap-1 text-[10px] uppercase font-black tracking-widest"
-                            >
-                              {copiedField === 'etisalat' ? <Check size={12} className="text-emerald-500" /> : <Copy size={12} />}
-                              <span>{copiedField === 'etisalat' ? t('branding.copied') : t('branding.copyDetails')}</span>
-                            </button>
-                          </div>
-                        )}
-
-                        {selectedMethod === 'orange' && (
-                          <div className="flex justify-between items-center bg-[#09090b] px-4 py-2.5 rounded-xl border border-white/5">
-                            <span className="font-mono text-white text-[13px]">{activePaymentMethods.orange?.number}</span>
-                            <button
-                              onClick={() => copyToClipboard(activePaymentMethods.orange?.number || '', 'orange')}
-                              className="text-slate-500 hover:text-white transition-all flex items-center gap-1 text-[10px] uppercase font-black tracking-widest"
-                            >
-                              {copiedField === 'orange' ? <Check size={12} className="text-emerald-500" /> : <Copy size={12} />}
-                              <span>{copiedField === 'orange' ? t('branding.copied') : t('branding.copyDetails')}</span>
-                            </button>
-                          </div>
-                        )}
-
-                        {selectedMethod === 'instapay' && (
-                          <div className="flex justify-between items-center bg-[#09090b] px-4 py-2.5 rounded-xl border border-white/5">
-                            <span className="font-mono text-white text-[13px]">{activePaymentMethods.instapay?.address}</span>
-                            <button
-                              onClick={() => copyToClipboard(activePaymentMethods.instapay?.address || '', 'instapay')}
-                              className="text-slate-500 hover:text-white transition-all flex items-center gap-1 text-[10px] uppercase font-black tracking-widest"
-                            >
-                              {copiedField === 'instapay' ? <Check size={12} className="text-emerald-500" /> : <Copy size={12} />}
-                              <span>{copiedField === 'instapay' ? t('branding.copied') : t('branding.copyDetails')}</span>
-                            </button>
-                          </div>
-                        )}
-
-                        {selectedMethod === 'paypal' && (
-                          <div className="flex justify-between items-center bg-[#09090b] px-4 py-2.5 rounded-xl border border-white/5">
-                            <span className="font-mono text-white text-[13px]">{activePaymentMethods.paypal?.email}</span>
-                            <button
-                              onClick={() => copyToClipboard(activePaymentMethods.paypal?.email || '', 'paypal')}
-                              className="text-slate-500 hover:text-white transition-all flex items-center gap-1 text-[10px] uppercase font-black tracking-widest"
-                            >
-                              {copiedField === 'paypal' ? <Check size={12} className="text-emerald-500" /> : <Copy size={12} />}
-                              <span>{copiedField === 'paypal' ? t('branding.copied') : t('branding.copyDetails')}</span>
-                            </button>
-                          </div>
-                        )}
-                      </div>
-
-                      {/* File drop / Uploader form */}
-                      <form onSubmit={handleReceiptUpload} className="space-y-4">
-                        <label className="border-2 border-dashed border-white/10 hover:border-brand-primary/40 bg-white/[0.01] rounded-2xl p-6 flex flex-col items-center justify-center gap-2 cursor-pointer transition-all">
-                          <UploadCloud size={28} className="text-slate-500" />
-                          <span className="text-xs text-slate-400 font-bold uppercase text-center max-w-xs">
-                            {receiptFile ? receiptFile.name : t('branding.dragAndDropReceipt')}
-                          </span>
-                          <input
-                            type="file"
-                            accept="image/*"
-                            onChange={(e) => setReceiptFile(e.target.files ? e.target.files[0] : null)}
-                            className="hidden"
-                            required
-                          />
-                        </label>
-
+                    {selectedMethod === 'vodafone' && (
+                      <div className="flex justify-between items-center bg-[#09090b] px-4 py-2.5 rounded-xl border border-white/5">
+                        <span className="font-mono text-white text-[13px]">{activePaymentMethods.vodafone?.number}</span>
                         <button
-                          type="submit"
-                          disabled={uploading || !receiptFile}
-                          className="w-full py-3 bg-brand-primary text-white text-xs font-black uppercase tracking-widest rounded-xl hover:brightness-110 shadow-lg shadow-brand-primary/20 transition-all flex items-center justify-center gap-2 disabled:opacity-50"
+                          onClick={() => copyToClipboard(activePaymentMethods.vodafone?.number || '', 'vodafone')}
+                          className="text-slate-500 hover:text-white transition-all flex items-center gap-1 text-[10px] uppercase font-black tracking-widest"
                         >
-                          {uploading ? (
-                            <>
-                              <Clock size={14} className="animate-spin" />
-                              <span>{t('branding.uploadingReceipt')}</span>
-                            </>
-                          ) : (
-                            <>
-                              <Sparkles size={14} />
-                              <span>{t('branding.submitReceipt')}</span>
-                            </>
-                          )}
+                          {copiedField === 'vodafone' ? <Check size={12} className="text-emerald-500" /> : <Copy size={12} />}
+                          <span>{copiedField === 'vodafone' ? t('branding.copied') : t('branding.copyDetails')}</span>
                         </button>
-                      </form>
-                    </div>
-                  )}
-
-                  {/* Stripe Payment Redirect UI */}
-                  {selectedMethod === 'stripe' && (
-                    <div className="pt-4 border-t border-white/5 space-y-4">
-                      <div className="p-4 bg-white/5 rounded-2xl border border-white/5 text-xs text-slate-300 leading-relaxed text-start">
-                        <div className="text-[10px] font-black uppercase tracking-widest text-slate-500 mb-2">
-                          {t('branding.stripeCardTitle')}
-                        </div>
-                        {t('branding.stripeRedirectDesc')}
                       </div>
+                    )}
 
-                      <a
-                        href={activePaymentMethods.stripe?.paymentLink}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="w-full py-3 bg-indigo-600 text-white text-xs font-black uppercase tracking-widest rounded-xl hover:brightness-110 shadow-lg shadow-indigo-600/20 transition-all flex items-center justify-center gap-2"
-                      >
+                    {selectedMethod === 'etisalat' && (
+                      <div className="flex justify-between items-center bg-[#09090b] px-4 py-2.5 rounded-xl border border-white/5">
+                        <span className="font-mono text-white text-[13px]">{activePaymentMethods.etisalat?.number}</span>
+                        <button
+                          onClick={() => copyToClipboard(activePaymentMethods.etisalat?.number || '', 'etisalat')}
+                          className="text-slate-500 hover:text-white transition-all flex items-center gap-1 text-[10px] uppercase font-black tracking-widest"
+                        >
+                          {copiedField === 'etisalat' ? <Check size={12} className="text-emerald-500" /> : <Copy size={12} />}
+                          <span>{copiedField === 'etisalat' ? t('branding.copied') : t('branding.copyDetails')}</span>
+                        </button>
+                      </div>
+                    )}
+
+                    {selectedMethod === 'orange' && (
+                      <div className="flex justify-between items-center bg-[#09090b] px-4 py-2.5 rounded-xl border border-white/5">
+                        <span className="font-mono text-white text-[13px]">{activePaymentMethods.orange?.number}</span>
+                        <button
+                          onClick={() => copyToClipboard(activePaymentMethods.orange?.number || '', 'orange')}
+                          className="text-slate-500 hover:text-white transition-all flex items-center gap-1 text-[10px] uppercase font-black tracking-widest"
+                        >
+                          {copiedField === 'orange' ? <Check size={12} className="text-emerald-500" /> : <Copy size={12} />}
+                          <span>{copiedField === 'orange' ? t('branding.copied') : t('branding.copyDetails')}</span>
+                        </button>
+                      </div>
+                    )}
+
+                    {selectedMethod === 'instapay' && (
+                      <div className="flex justify-between items-center bg-[#09090b] px-4 py-2.5 rounded-xl border border-white/5">
+                        <span className="font-mono text-white text-[13px]">{activePaymentMethods.instapay?.address}</span>
+                        <button
+                          onClick={() => copyToClipboard(activePaymentMethods.instapay?.address || '', 'instapay')}
+                          className="text-slate-500 hover:text-white transition-all flex items-center gap-1 text-[10px] uppercase font-black tracking-widest"
+                        >
+                          {copiedField === 'instapay' ? <Check size={12} className="text-emerald-500" /> : <Copy size={12} />}
+                          <span>{copiedField === 'instapay' ? t('branding.copied') : t('branding.copyDetails')}</span>
+                        </button>
+                      </div>
+                    )}
+
+                    {selectedMethod === 'paypal' && (
+                      <div className="flex justify-between items-center bg-[#09090b] px-4 py-2.5 rounded-xl border border-white/5">
+                        <span className="font-mono text-white text-[13px]">{activePaymentMethods.paypal?.email}</span>
+                        <button
+                          onClick={() => copyToClipboard(activePaymentMethods.paypal?.email || '', 'paypal')}
+                          className="text-slate-500 hover:text-white transition-all flex items-center gap-1 text-[10px] uppercase font-black tracking-widest"
+                        >
+                          {copiedField === 'paypal' ? <Check size={12} className="text-emerald-500" /> : <Copy size={12} />}
+                          <span>{copiedField === 'paypal' ? t('branding.copied') : t('branding.copyDetails')}</span>
+                        </button>
+                      </div>
+                    )}
+                  </div>
+
+                  {/* File drop / Uploader form */}
+                  <form onSubmit={handleReceiptUpload} className="space-y-4">
+                    <label className="border-2 border-dashed border-white/10 hover:border-brand-primary/40 bg-white/[0.01] rounded-2xl p-6 flex flex-col items-center justify-center gap-2 cursor-pointer transition-all">
+                      <UploadCloud size={28} className="text-slate-500" />
+                      <span className="text-xs text-slate-400 font-bold uppercase text-center max-w-xs">
+                        {receiptFile ? receiptFile.name : t('branding.dragAndDropReceipt')}
+                      </span>
+                      <input
+                        type="file"
+                        accept="image/*"
+                        onChange={(e) => setReceiptFile(e.target.files ? e.target.files[0] : null)}
+                        className="hidden"
+                        required
+                      />
+                    </label>
+
+                    <button
+                      type="submit"
+                      disabled={uploading || !receiptFile}
+                      className="w-full py-3 bg-brand-primary text-white text-xs font-black uppercase tracking-widest rounded-xl hover:brightness-110 shadow-lg shadow-brand-primary/20 transition-all flex items-center justify-center gap-2 disabled:opacity-50"
+                    >
+                      {uploading ? (
+                        <>
+                          <Clock size={14} className="animate-spin" />
+                          <span>{t('branding.uploadingReceipt')}</span>
+                        </>
+                      ) : (
+                        <>
+                          <Sparkles size={14} />
+                          <span>{t('branding.submitReceipt')}</span>
+                        </>
+                      )}
+                    </button>
+                  </form>
+                </div>
+              )}
+
+              {/* Stripe Payment Redirect UI */}
+              {selectedMethod === 'stripe' && (
+                <div className="pt-4 border-t border-white/5 space-y-4">
+                  <div className="p-4 bg-white/5 rounded-2xl border border-white/5 text-xs text-slate-300 leading-relaxed text-start">
+                    <div className="text-[10px] font-black uppercase tracking-widest text-slate-500 mb-2">
+                      {t('branding.stripeCardTitle')}
+                    </div>
+                    {t('branding.stripeRedirectDesc')}
+                  </div>
+
+                  <a
+                    href={activePaymentMethods.stripe?.paymentLink}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="w-full py-3 bg-indigo-600 text-white text-xs font-black uppercase tracking-widest rounded-xl hover:brightness-110 shadow-lg shadow-indigo-600/20 transition-all flex items-center justify-center gap-2"
+                  >
+                    <ExternalLink size={14} />
+                    <span>{t('branding.stripePayNow')}</span>
+                  </a>
+                </div>
+              )}
+
+              {/* Paddle Payment Redirect UI */}
+              {selectedMethod === 'paddle' && (
+                <div className="pt-4 border-t border-white/5 space-y-4">
+                  <div className="p-4 bg-white/5 rounded-2xl border border-white/5 text-xs text-slate-300 leading-relaxed text-start">
+                    <div className="text-[10px] font-black uppercase tracking-widest text-slate-500 mb-2">
+                      {t('branding.paymentPaddle')}
+                    </div>
+                    {language === 'ar'
+                      ? 'سيتم فتح نافذة دفع آمنة خاصة بـ Paddle لإتمام عملية الاشتراك بنجاح.'
+                      : 'A secure Paddle checkout window will open to complete your subscription.'}
+                  </div>
+
+                  <button
+                    onClick={handlePaddleCheckout}
+                    disabled={paddleLoading}
+                    className="w-full py-3 bg-sky-600 text-white text-xs font-black uppercase tracking-widest rounded-xl hover:brightness-110 shadow-lg shadow-sky-600/20 transition-all flex items-center justify-center gap-2"
+                  >
+                    {paddleLoading ? (
+                      <>
+                        <Clock size={14} className="animate-spin" />
+                        <span>{t('common.loading')}</span>
+                      </>
+                    ) : (
+                      <>
                         <ExternalLink size={14} />
-                        <span>{t('branding.stripePayNow')}</span>
-                      </a>
-                    </div>
-                  )}
-
-                  {/* Paddle Payment Redirect UI */}
-                  {selectedMethod === 'paddle' && (
-                    <div className="pt-4 border-t border-white/5 space-y-4">
-                      <div className="p-4 bg-white/5 rounded-2xl border border-white/5 text-xs text-slate-300 leading-relaxed text-start">
-                        <div className="text-[10px] font-black uppercase tracking-widest text-slate-500 mb-2">
-                          {t('branding.paymentPaddle')}
-                        </div>
-                        {language === 'ar'
-                          ? 'سيتم فتح نافذة دفع آمنة خاصة بـ Paddle لإتمام عملية الاشتراك بنجاح.'
-                          : 'A secure Paddle checkout window will open to complete your subscription.'}
-                      </div>
-
-                      <button
-                        onClick={handlePaddleCheckout}
-                        disabled={paddleLoading}
-                        className="w-full py-3 bg-sky-600 text-white text-xs font-black uppercase tracking-widest rounded-xl hover:brightness-110 shadow-lg shadow-sky-600/20 transition-all flex items-center justify-center gap-2"
-                      >
-                        {paddleLoading ? (
-                          <>
-                            <Clock size={14} className="animate-spin" />
-                            <span>{t('common.loading')}</span>
-                          </>
-                        ) : (
-                          <>
-                            <ExternalLink size={14} />
-                            <span>{language === 'ar' ? 'ادفع الآن بواسطة Paddle 💳' : 'Pay Now with Paddle 💳'}</span>
-                          </>
-                        )}
-                      </button>
-                    </div>
-                  )}
+                        <span>{language === 'ar' ? 'ادفع الآن بواسطة Paddle 💳' : 'Pay Now with Paddle 💳'}</span>
+                      </>
+                    )}
+                  </button>
                 </div>
               )}
             </div>
-          </div>
+          )}
         </div>
-      )}
-
-      {/* When tenant plan is hidden by admin */}
-      {!isPlanVisible && (
-        <div className="glass-card border border-white/5 text-center p-8">
-          <Clock size={36} className="text-slate-500 mx-auto mb-4" />
-          <h3 className="text-lg font-bold text-white mb-2 uppercase">
-            {language === 'ar' ? 'لا توجد باقات مفعلة' : 'No Plans Enabled'}
-          </h3>
-          <p className="text-xs text-slate-400 max-w-sm mx-auto leading-relaxed">
-            {language === 'ar'
-              ? 'لم يقم مسؤول المنصة بتفعيل أي باقة اشتراك حالياً. يرجى مراجعته مباشرة لتفعيل حسابك.'
-              : 'The workspace administrator has not enabled any billing subscription plan. Please contact your manager to extend access.'}
-          </p>
-        </div>
-      )}
+      </div>
     </div>
   );
 }

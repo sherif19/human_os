@@ -21,11 +21,15 @@ import {
   TrendingUp,
   CreditCard,
   ChevronLeft,
-  Globe
+  Globe,
+  Lock
 } from 'lucide-react';
 import { cn } from '../../lib/utils';
 import { useLanguage } from '../../contexts/LanguageContext';
 import { useAuth } from '../../hooks/useAuth';
+import { db } from '../../lib/firebase';
+import { doc, getDoc } from 'firebase/firestore';
+import { isPathUnlocked } from '../../lib/subscription';
 import { translations, TranslationKey } from '../../lib/translations';
 import { motion, AnimatePresence } from 'motion/react';
 
@@ -40,6 +44,22 @@ export function Sidebar({ isOpen, onClose, isCollapsed = false, onToggleCollapse
   const { user, signOut } = useAuth();
   const { language, setLanguage, isRTL } = useLanguage();
   const t = (key: TranslationKey) => translations[language][key] || key;
+
+  const [tenantConfig, setTenantConfig] = React.useState<any>(null);
+  const adminId = user?.adminId || (user?.role === 'admin' || user?.role === 'super_admin' ? user.uid : '');
+
+  React.useEffect(() => {
+    if (!adminId) return;
+    getDoc(doc(db, 'tenants', adminId))
+      .then(snap => {
+        if (snap.exists()) {
+          setTenantConfig(snap.data());
+        }
+      })
+      .catch((err) => {
+        console.error("Sidebar: Error loading tenant config", err);
+      });
+  }, [adminId]);
 
   const systemItems: { icon: any, labelKey: TranslationKey, path: string }[] = [
     { icon: LayoutDashboard, labelKey: 'dashboard', path: '/dashboard' },
@@ -125,42 +145,51 @@ export function Sidebar({ isOpen, onClose, isCollapsed = false, onToggleCollapse
           )}
           
           <div className="space-y-1">
-            {systemItems.map((item) => (
-              <div key={item.labelKey} className="relative group/tooltip">
-                <NavLink
-                  to={item.path}
-                  onClick={onClose}
-                  className={({ isActive }) => cn(
-                    "sidebar-link group transition-all duration-200",
-                    isCollapsed ? "justify-center px-0 h-10 w-10 mx-auto rounded-xl" : "",
-                    isActive
-                      ? "bg-brand-primary/10 text-white border border-brand-primary/20"
-                      : "text-slate-400 hover:bg-white/5 hover:text-white"
+            {systemItems.map((item) => {
+              const isUnlocked = isPathUnlocked(user, item.path, tenantConfig);
+              return (
+                <div key={item.labelKey} className="relative group/tooltip">
+                  <NavLink
+                    to={isUnlocked ? item.path : '/billing'}
+                    onClick={onClose}
+                    className={({ isActive }) => cn(
+                      "sidebar-link group transition-all duration-200",
+                      isCollapsed ? "justify-center px-0 h-10 w-10 mx-auto rounded-xl" : "",
+                      isActive && isUnlocked
+                        ? "bg-brand-primary/10 text-white border border-brand-primary/20"
+                        : "text-slate-400 hover:bg-white/5 hover:text-white"
+                    )}
+                  >
+                    {({ isActive }) => (
+                      <>
+                        <item.icon className={cn(
+                          "w-4 h-4 transition-colors shrink-0",
+                          isActive && isUnlocked ? "text-brand-primary" : "text-slate-600 group-hover:text-slate-400"
+                        )} />
+                        {!isCollapsed && (
+                          <span className="font-bold text-xs uppercase tracking-widest flex items-center justify-between w-full">
+                            <span>{t(item.labelKey)}</span>
+                            {!isUnlocked && <Lock size={12} className="text-slate-500 hover:text-white shrink-0 ml-1.5" />}
+                          </span>
+                        )}
+                        {isCollapsed && !isUnlocked && (
+                          <div className="absolute top-1 right-1 w-2 h-2 rounded-full bg-brand-primary border border-bg-sidebar shadow-md animate-pulse" />
+                        )}
+                      </>
+                    )}
+                  </NavLink>
+                  
+                  {isCollapsed && (
+                    <div className={cn(
+                      "absolute top-1/2 -translate-y-1/2 opacity-0 pointer-events-none group-hover/tooltip:opacity-100 transition-all duration-200 z-50 px-3 py-1.5 bg-bg-sidebar border border-white/10 text-white text-[10px] font-black uppercase tracking-widest rounded-lg whitespace-nowrap shadow-xl",
+                      isRTL ? "right-full mr-3 translate-x-2 group-hover/tooltip:translate-x-0" : "left-full ml-3 -translate-x-2 group-hover/tooltip:translate-x-0"
+                    )}>
+                      {t(item.labelKey)} {!isUnlocked && '🔒'}
+                    </div>
                   )}
-                >
-                  {({ isActive }) => (
-                    <>
-                      <item.icon className={cn(
-                        "w-4 h-4 transition-colors shrink-0",
-                        isActive ? "text-brand-primary" : "text-slate-600 group-hover:text-slate-400"
-                      )} />
-                      {!isCollapsed && (
-                        <span className="font-bold text-xs uppercase tracking-widest">{t(item.labelKey)}</span>
-                      )}
-                    </>
-                  )}
-                </NavLink>
-                
-                {isCollapsed && (
-                  <div className={cn(
-                    "absolute top-1/2 -translate-y-1/2 opacity-0 pointer-events-none group-hover/tooltip:opacity-100 transition-all duration-200 z-50 px-3 py-1.5 bg-bg-sidebar border border-white/10 text-white text-[10px] font-black uppercase tracking-widest rounded-lg whitespace-nowrap shadow-xl",
-                    isRTL ? "right-full mr-3 translate-x-2 group-hover/tooltip:translate-x-0" : "left-full ml-3 -translate-x-2 group-hover/tooltip:translate-x-0"
-                  )}>
-                    {t(item.labelKey)}
-                  </div>
-                )}
-              </div>
-            ))}
+                </div>
+              );
+            })}
           </div>
 
           {/* 2. AI Section */}
@@ -173,31 +202,42 @@ export function Sidebar({ isOpen, onClose, isCollapsed = false, onToggleCollapse
           )}
           
           <div className="space-y-1">
-            <div className="relative group/tooltip">
-              <NavLink
-                to="/coach"
-                onClick={onClose}
-                className={({ isActive }) => cn(
-                  "sidebar-link group transition-all duration-200",
-                  isCollapsed ? "justify-center px-0 h-10 w-10 mx-auto rounded-xl" : "",
-                  isActive ? "bg-brand-primary/10 text-white border border-brand-primary/20" : "text-slate-400 hover:bg-white/5 hover:text-white"
-                )}
-              >
-                <MessageSquare className="w-4 h-4 text-brand-primary shrink-0" />
-                {!isCollapsed && (
-                  <span className="font-bold text-xs uppercase tracking-widest">{t('ai_coach')}</span>
-                )}
-              </NavLink>
+            {(() => {
+              const isUnlocked = isPathUnlocked(user, '/coach', tenantConfig);
+              return (
+                <div className="relative group/tooltip">
+                  <NavLink
+                    to={isUnlocked ? "/coach" : "/billing"}
+                    onClick={onClose}
+                    className={({ isActive }) => cn(
+                      "sidebar-link group transition-all duration-200",
+                      isCollapsed ? "justify-center px-0 h-10 w-10 mx-auto rounded-xl" : "",
+                      isActive && isUnlocked ? "bg-brand-primary/10 text-white border border-brand-primary/20" : "text-slate-400 hover:bg-white/5 hover:text-white"
+                    )}
+                  >
+                    <MessageSquare className="w-4 h-4 text-brand-primary shrink-0" />
+                    {!isCollapsed && (
+                      <span className="font-bold text-xs uppercase tracking-widest flex items-center justify-between w-full">
+                        <span>{t('ai_coach')}</span>
+                        {!isUnlocked && <Lock size={12} className="text-slate-500 hover:text-white shrink-0 ml-1.5" />}
+                      </span>
+                    )}
+                    {isCollapsed && !isUnlocked && (
+                      <div className="absolute top-1 right-1 w-2 h-2 rounded-full bg-brand-primary border border-bg-sidebar shadow-md animate-pulse" />
+                    )}
+                  </NavLink>
 
-              {isCollapsed && (
-                <div className={cn(
-                  "absolute top-1/2 -translate-y-1/2 opacity-0 pointer-events-none group-hover/tooltip:opacity-100 transition-all duration-200 z-50 px-3 py-1.5 bg-bg-sidebar border border-white/10 text-white text-[10px] font-black uppercase tracking-widest rounded-lg whitespace-nowrap shadow-xl",
-                  isRTL ? "right-full mr-3 translate-x-2 group-hover/tooltip:translate-x-0" : "left-full ml-3 -translate-x-2 group-hover/tooltip:translate-x-0"
-                )}>
-                  {t('ai_coach')}
+                  {isCollapsed && (
+                    <div className={cn(
+                      "absolute top-1/2 -translate-y-1/2 opacity-0 pointer-events-none group-hover/tooltip:opacity-100 transition-all duration-200 z-50 px-3 py-1.5 bg-bg-sidebar border border-white/10 text-white text-[10px] font-black uppercase tracking-widest rounded-lg whitespace-nowrap shadow-xl",
+                      isRTL ? "right-full mr-3 translate-x-2 group-hover/tooltip:translate-x-0" : "left-full ml-3 -translate-x-2 group-hover/tooltip:translate-x-0"
+                    )}>
+                      {t('ai_coach')} {!isUnlocked && '🔒'}
+                    </div>
+                  )}
                 </div>
-              )}
-            </div>
+              );
+            })()}
           </div>
 
           {/* 3. Library Section */}
@@ -210,42 +250,51 @@ export function Sidebar({ isOpen, onClose, isCollapsed = false, onToggleCollapse
           )}
 
           <div className="space-y-1">
-            {personalItems.map((item) => (
-              <div key={item.labelKey} className="relative group/tooltip">
-                <NavLink
-                  to={item.path}
-                  onClick={onClose}
-                  className={({ isActive }) => cn(
-                    "sidebar-link group transition-all duration-200",
-                    isCollapsed ? "justify-center px-0 h-10 w-10 mx-auto rounded-xl" : "",
-                    isActive
-                      ? "bg-brand-primary/10 text-white border border-brand-primary/20"
-                      : "text-slate-400 hover:bg-white/5 hover:text-white"
-                  )}
-                >
-                  {({ isActive }) => (
-                    <>
-                      <item.icon className={cn(
-                        "w-4 h-4 transition-colors shrink-0",
-                        isActive ? "text-brand-primary" : "text-slate-600 group-hover:text-slate-400"
-                      )} />
-                      {!isCollapsed && (
-                        <span className="font-bold text-xs uppercase tracking-widest">{t(item.labelKey)}</span>
-                      )}
-                    </>
-                  )}
-                </NavLink>
+            {personalItems.map((item) => {
+              const isUnlocked = isPathUnlocked(user, item.path, tenantConfig);
+              return (
+                <div key={item.labelKey} className="relative group/tooltip">
+                  <NavLink
+                    to={isUnlocked ? item.path : '/billing'}
+                    onClick={onClose}
+                    className={({ isActive }) => cn(
+                      "sidebar-link group transition-all duration-200",
+                      isCollapsed ? "justify-center px-0 h-10 w-10 mx-auto rounded-xl" : "",
+                      isActive && isUnlocked
+                        ? "bg-brand-primary/10 text-white border border-brand-primary/20"
+                        : "text-slate-400 hover:bg-white/5 hover:text-white"
+                    )}
+                  >
+                    {({ isActive }) => (
+                      <>
+                        <item.icon className={cn(
+                          "w-4 h-4 transition-colors shrink-0",
+                          isActive && isUnlocked ? "text-brand-primary" : "text-slate-600 group-hover:text-slate-400"
+                        )} />
+                        {!isCollapsed && (
+                          <span className="font-bold text-xs uppercase tracking-widest flex items-center justify-between w-full">
+                            <span>{t(item.labelKey)}</span>
+                            {!isUnlocked && <Lock size={12} className="text-slate-500 hover:text-white shrink-0 ml-1.5" />}
+                          </span>
+                        )}
+                        {isCollapsed && !isUnlocked && (
+                          <div className="absolute top-1 right-1 w-2 h-2 rounded-full bg-brand-primary border border-bg-sidebar shadow-md animate-pulse" />
+                        )}
+                      </>
+                    )}
+                  </NavLink>
 
-                {isCollapsed && (
-                  <div className={cn(
-                    "absolute top-1/2 -translate-y-1/2 opacity-0 pointer-events-none group-hover/tooltip:opacity-100 transition-all duration-200 z-50 px-3 py-1.5 bg-bg-sidebar border border-white/10 text-white text-[10px] font-black uppercase tracking-widest rounded-lg whitespace-nowrap shadow-xl",
-                    isRTL ? "right-full mr-3 translate-x-2 group-hover/tooltip:translate-x-0" : "left-full ml-3 -translate-x-2 group-hover/tooltip:translate-x-0"
-                  )}>
-                    {t(item.labelKey)}
-                  </div>
-                )}
-              </div>
-            ))}
+                  {isCollapsed && (
+                    <div className={cn(
+                      "absolute top-1/2 -translate-y-1/2 opacity-0 pointer-events-none group-hover/tooltip:opacity-100 transition-all duration-200 z-50 px-3 py-1.5 bg-bg-sidebar border border-white/10 text-white text-[10px] font-black uppercase tracking-widest rounded-lg whitespace-nowrap shadow-xl",
+                      isRTL ? "right-full mr-3 translate-x-2 group-hover/tooltip:translate-x-0" : "left-full ml-3 -translate-x-2 group-hover/tooltip:translate-x-0"
+                    )}>
+                      {t(item.labelKey)} {!isUnlocked && '🔒'}
+                    </div>
+                  )}
+                </div>
+              );
+            })}
           </div>
 
           {/* 4. Admin Management Section */}

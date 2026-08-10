@@ -9,6 +9,7 @@ import { AuthProvider, useAuth } from './hooks/useAuth';
 import { LanguageProvider } from './contexts/LanguageContext';
 import { DashboardLayout } from './components/layout/DashboardLayout';
 import { AdminLayout } from './layouts/AdminLayout';
+import { SubscriptionGuard } from './components/layout/SubscriptionGuard';
 
 // Lazily import pages for better performance
 const LandingPage = React.lazy(() => import('./pages/LandingPage'));
@@ -93,49 +94,65 @@ export default function App() {
             
             <Route path="/dna" element={
               <AuthenticatedRoute>
-                <PersonalityDNA />
+                <SubscriptionGuard>
+                  <PersonalityDNA />
+                </SubscriptionGuard>
               </AuthenticatedRoute>
             } />
 
             <Route path="/growth-lab" element={
               <AuthenticatedRoute>
-                <GrowthLab />
+                <SubscriptionGuard>
+                  <GrowthLab />
+                </SubscriptionGuard>
               </AuthenticatedRoute>
             } />
 
             <Route path="/emotional-iq" element={
               <AuthenticatedRoute>
-                <EmotionalIQ />
+                <SubscriptionGuard>
+                  <EmotionalIQ />
+                </SubscriptionGuard>
               </AuthenticatedRoute>
             } />
 
             <Route path="/social-iq" element={
               <AuthenticatedRoute>
-                <SocialIntelligence />
+                <SubscriptionGuard>
+                  <SocialIntelligence />
+                </SubscriptionGuard>
               </AuthenticatedRoute>
             } />
 
             <Route path="/tests" element={
               <AuthenticatedRoute>
-                <NeuralTests />
+                <SubscriptionGuard>
+                  <NeuralTests />
+                </SubscriptionGuard>
               </AuthenticatedRoute>
             } />
             
             <Route path="/coach" element={
               <AuthenticatedRoute>
-                <AICoach />
+                <SubscriptionGuard>
+                  <AICoach />
+                </SubscriptionGuard>
               </AuthenticatedRoute>
             } />
             
             <Route path="/journey" element={
               <AuthenticatedRoute>
-                <GrowthJourney />
+                <SubscriptionGuard>
+                  <GrowthJourney />
+                </SubscriptionGuard>
               </AuthenticatedRoute>
             } />
 
             <Route path="/library" element={
               <AuthenticatedRoute>
-                <Library />
+                <SubscriptionGuard>
+                  <Library />
+                </SubscriptionGuard>
               </AuthenticatedRoute>
             } />
 
@@ -153,13 +170,17 @@ export default function App() {
             
             <Route path="/toxicity" element={
               <AuthenticatedRoute>
-                <ToxicityShield />
+                <SubscriptionGuard>
+                  <ToxicityShield />
+                </SubscriptionGuard>
               </AuthenticatedRoute>
             } />
 
             <Route path="/cognitive-load" element={
               <AuthenticatedRoute>
-                <CognitiveLoad />
+                <SubscriptionGuard>
+                  <CognitiveLoad />
+                </SubscriptionGuard>
               </AuthenticatedRoute>
             } />
 
@@ -177,13 +198,17 @@ export default function App() {
 
             <Route path="/velocity" element={
               <AuthenticatedRoute>
-                <GrowthVelocity />
+                <SubscriptionGuard>
+                  <GrowthVelocity />
+                </SubscriptionGuard>
               </AuthenticatedRoute>
             } />
 
             <Route path="/archetype" element={
               <AuthenticatedRoute>
-                <ArchetypeAnalysis />
+                <SubscriptionGuard>
+                  <ArchetypeAnalysis />
+                </SubscriptionGuard>
               </AuthenticatedRoute>
             } />
             <Route path="/billing" element={
@@ -194,7 +219,9 @@ export default function App() {
 
             <Route path="/booking" element={
               <AuthenticatedRoute>
-                <Booking />
+                <SubscriptionGuard>
+                  <Booking />
+                </SubscriptionGuard>
               </AuthenticatedRoute>
             } />
 

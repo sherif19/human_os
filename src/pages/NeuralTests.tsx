@@ -29,6 +29,8 @@ import { translations, TranslationKey } from '../lib/translations';
 import { useAuth } from '../hooks/useAuth';
 import { PERSONALITY_TESTS } from '../constants/tests';
 import { TestRunner } from '../components/personality/TestRunner';
+import { NeuralTestCard, getCardTheme, CardBackgroundAnimation } from '../components/personality/NeuralTestCard';
+import { analyzePersonality as analyzePersonalityAPI } from '../services/api';
 
 const CATEGORIES = ['All', 'Diagnostic', 'Personality', 'Social IQ', 'Development'];
 
@@ -101,6 +103,70 @@ export default function NeuralTests() {
       };
       updateData.completedTests = completedTests;
 
+      // Fetch dynamic AI analysis
+      try {
+        const adminId = user.adminId || (user.role === 'admin' || user.role === 'super_admin' ? user.uid : '');
+        const currentScores = {
+          confidence: user.confidence ?? 65,
+          discipline: user.discipline ?? 48,
+          emotional: user.emotional ?? 75,
+          charisma: user.charisma ?? 50,
+          leadership: user.leadership ?? 60,
+          selfWorth: user.selfWorth ?? 55,
+          consistency: user.consistency ?? 45,
+          focus: user.focus ?? 85,
+          social: user.social ?? 40,
+          empathy: user.empathy ?? 70,
+          ...(field ? { [field]: updateData[field] } : {})
+        };
+
+        const aiResult = await analyzePersonalityAPI(
+          answers, 
+          { currentScores, email: user.email, name: user.name }, 
+          [], 
+          adminId
+        );
+
+        if (aiResult && aiResult.archetype) {
+          updateData.archetype = aiResult.archetype;
+          updateData.archetypeAr = aiResult.archetypeAr || aiResult.archetype;
+          updateData.intelligenceInsight = aiResult.insight || aiResult.intelligenceInsight;
+          updateData.intelligenceInsightAr = aiResult.insightAr || aiResult.intelligenceInsightAr;
+          
+          if (Array.isArray(aiResult.strengths)) {
+            updateData.strengths = aiResult.strengths.join(', ');
+          }
+          if (Array.isArray(aiResult.strengthsAr)) {
+            updateData.strengthsAr = aiResult.strengthsAr.join(', ');
+          }
+          if (Array.isArray(aiResult.weaknesses)) {
+            updateData.weaknesses = aiResult.weaknesses.join(', ');
+          }
+          if (Array.isArray(aiResult.weaknessesAr)) {
+            updateData.weaknessesAr = aiResult.weaknessesAr.join(', ');
+          }
+          
+          if (Array.isArray(aiResult.growthPath)) {
+            updateData.growthProtocol = aiResult.growthPath.map((step: string) => `"${step}"`).join(' ');
+          }
+          if (Array.isArray(aiResult.growthPathAr)) {
+            updateData.growthProtocolAr = aiResult.growthPathAr.map((step: string) => `"${step}"`).join(' ');
+          }
+
+          if (Array.isArray(aiResult.recommendations) && aiResult.recommendations.length > 0) {
+            updateData.protocol01 = aiResult.recommendations[0];
+            updateData.protocol01Ar = aiResult.recommendationsAr?.[0] || aiResult.recommendations[0];
+            if (aiResult.recommendations.length > 1) {
+              updateData.protocol02 = aiResult.recommendations[1];
+              updateData.protocol02Ar = aiResult.recommendationsAr?.[1] || aiResult.recommendations[1];
+            }
+          }
+        }
+      } catch (err) {
+        console.error("AI Personality Analysis failed:", err);
+        throw err;
+      }
+
       await updateUser(updateData);
     }
     setRunningTest(false);
@@ -118,7 +184,7 @@ export default function NeuralTests() {
       nameEn,
       nameAr,
       category: mappedCat,
-      status: isCompleted ? 'completed' : 'available',
+      status: (isCompleted ? 'completed' : 'available') as 'completed' | 'available' | 'locked' | 'new',
       time: '6 min',
     };
   });
@@ -145,8 +211,19 @@ export default function NeuralTests() {
   }
 
   if (activeTest) {
+    const detailTheme = getCardTheme(activeTest.id);
+    const detailIsCompleted = user?.completedTests?.[activeTest.id] !== undefined;
+    const themeColor = detailIsCompleted ? '#10b981' : detailTheme.themeColor;
+    const themeColorRgb = detailIsCompleted ? '16, 185, 129' : detailTheme.themeColorRgb;
+
     return (
-      <div className="max-w-4xl mx-auto space-y-12 pb-32">
+      <div 
+        className="max-w-4xl mx-auto space-y-12 pb-32"
+        style={{
+          ['--theme-color' as any]: themeColor,
+          ['--theme-color-rgb' as any]: themeColorRgb,
+        }}
+      >
         <button 
           onClick={() => setActiveTest(null)}
           className="flex items-center gap-2 text-slate-500 hover:text-white transition-colors group"
@@ -155,55 +232,84 @@ export default function NeuralTests() {
           <span className="text-[10px] font-black uppercase tracking-widest">{language === 'ar' ? 'العودة للاختبارات' : 'Back to Neural Tests'}</span>
         </button>
 
-        <div className="glass-card p-12 text-center relative overflow-hidden">
-           <div className="w-20 h-20 bg-brand-primary/10 rounded-3xl flex items-center justify-center mx-auto mb-8 border border-brand-primary/10">
-              <activeTest.icon className="w-10 h-10 text-brand-primary" />
-           </div>
-           <h1 className="text-4xl font-bold text-white mb-4">{language === 'ar' ? activeTest.nameAr : activeTest.nameEn}</h1>
-           <p className="text-slate-400 font-medium mb-12 max-w-xl mx-auto">
-             {language === 'ar' 
-               ? 'سيقوم هذا التقييم بتحليل أنماطك السلوكية لتقديم رؤى دقيقة للحمض النووي لشخصيتك.' 
-               : 'This assessment will analyze your behavioral patterns to provide accurate personality DNA insights.'}
-           </p>
+        <div 
+          className={cn(
+            "glass-card p-12 text-center relative overflow-hidden transition-all duration-500 border",
+            detailIsCompleted ? "border-emerald-500/20 shadow-[0_0_50px_rgba(16,185,129,0.1)]" : "border-[rgba(var(--theme-color-rgb),0.15)] shadow-[0_0_50px_rgba(var(--theme-color-rgb),0.08)] hover:border-[rgba(var(--theme-color-rgb),0.3)]"
+          )}
+        >
+          {/* Content-Aware Theme Background Animation */}
+          <CardBackgroundAnimation type={detailTheme.bgAnimType} id={activeTest.id} isHovered={true} />
 
-           <div className="grid grid-cols-3 gap-6 max-w-lg mx-auto mb-12 text-[10px] font-black uppercase tracking-[0.1em]">
-              <div className="p-4 rounded-2xl bg-white/5 border border-white/5 text-slate-500">
-                 {activeTest.questions} Qs
-              </div>
-              <div className="p-4 rounded-2xl bg-white/5 border border-white/5 text-slate-500">
-                 {activeTest.time}
-              </div>
-              <div className="p-4 rounded-2xl bg-white/5 border border-white/5 text-slate-500">
-                 {activeTest.category}
-              </div>
-           </div>
+          <div className="relative z-20 flex flex-col items-center">
+             <div 
+               className={cn(
+                 "w-20 h-20 rounded-3xl flex items-center justify-center mb-8 border transition-all duration-500 shadow-xl",
+                 detailIsCompleted 
+                   ? "bg-emerald-500/10 text-emerald-400 border-emerald-500/20" 
+                   : "bg-[rgba(var(--theme-color-rgb),0.1)] text-[var(--theme-color)] border-[rgba(var(--theme-color-rgb),0.2)]"
+               )}
+             >
+                <activeTest.icon className="w-10 h-10 animate-pulse" />
+             </div>
+             
+             <h1 className="text-4xl font-black text-white mb-4 tracking-tight">
+               {language === 'ar' ? activeTest.nameAr : activeTest.nameEn}
+             </h1>
+             
+             <p className="text-slate-400 font-medium mb-12 max-w-xl mx-auto text-sm leading-relaxed">
+               {language === 'ar' 
+                 ? 'سيقوم هذا التقييم بتحليل أنماطك السلوكية لتقديم رؤى دقيقة للحمض النووي لشخصيتك.' 
+                 : 'This assessment will analyze your behavioral patterns to provide accurate personality DNA insights.'}
+             </p>
 
-           <button 
-             onClick={() => setRunningTest(true)}
-             className="px-12 py-5 bg-brand-primary text-white rounded-2xl font-black text-sm uppercase tracking-widest shadow-2xl shadow-brand-primary/20 hover:scale-105 transition-all"
-           >
-              {language === 'ar' ? 'بدء التقييم الآن' : 'Start Assessment Now'}
-           </button>
+             <div className="grid grid-cols-3 gap-6 max-w-lg w-full mx-auto mb-12 text-[10px] font-black uppercase tracking-[0.15em]">
+                <div className="p-4 rounded-2xl bg-white/5 border border-white/5 text-slate-400 flex flex-col justify-center items-center gap-1">
+                   <span className="text-slate-600 text-[8px]">{language === 'ar' ? 'الأسئلة' : 'QUESTIONS'}</span>
+                   <span className="text-white text-sm font-black">{activeTest.questions} Qs</span>
+                </div>
+                <div className="p-4 rounded-2xl bg-white/5 border border-white/5 text-slate-400 flex flex-col justify-center items-center gap-1">
+                   <span className="text-slate-600 text-[8px]">{language === 'ar' ? 'الوقت' : 'DURATION'}</span>
+                   <span className="text-white text-sm font-black">{activeTest.time}</span>
+                </div>
+                <div className="p-4 rounded-2xl bg-white/5 border border-white/5 text-slate-400 flex flex-col justify-center items-center gap-1">
+                   <span className="text-slate-600 text-[8px]">{language === 'ar' ? 'الفئة' : 'CATEGORY'}</span>
+                   <span className="text-white text-sm font-black">{activeTest.category}</span>
+                </div>
+             </div>
+
+             <button 
+               onClick={() => setRunningTest(true)}
+               className={cn(
+                 "px-12 py-5 text-white rounded-2xl font-black text-xs uppercase tracking-widest shadow-2xl transition-all duration-300 hover:scale-105 active:scale-95 cursor-pointer",
+                 detailIsCompleted
+                   ? "bg-emerald-500 shadow-emerald-500/20 hover:bg-emerald-400"
+                   : "bg-[var(--theme-color)] shadow-[rgba(var(--theme-color-rgb),0.3)] hover:brightness-110"
+               )}
+             >
+                {language === 'ar' ? 'بدء التقييم الآن' : 'Start Assessment Now'}
+             </button>
+          </div>
         </div>
 
         <div className="grid md:grid-cols-2 gap-6">
-           <div className="glass-card p-8">
+           <div className="glass-card p-8 border border-white/5">
               <h4 className="text-xs font-black text-white uppercase tracking-widest mb-6 flex items-center gap-2">
-                 <Shield className="w-4 h-4 text-brand-primary" />
+                 <Shield className="w-4 h-4 text-[var(--theme-color)]" />
                  {language === 'ar' ? 'أمان البيانات' : 'Data Integrity'}
               </h4>
-              <p className="text-sm text-slate-500 leading-relaxed">
+              <p className="text-sm text-slate-400 leading-relaxed font-medium">
                  {language === 'ar' 
                    ? 'يتم تشفير إجاباتك ومعالجتها بواسطة طبقة ذكاءنا العصبي بشكل خاص.' 
                    : 'Your answers are encrypted and processed by our neural intelligence layer exclusively.'}
               </p>
            </div>
-           <div className="glass-card p-8">
+           <div className="glass-card p-8 border border-white/5">
               <h4 className="text-xs font-black text-white uppercase tracking-widest mb-6 flex items-center gap-2">
-                 <Sparkles className="w-4 h-4 text-amber-500" />
+                 <Sparkles className="w-4 h-4 text-amber-400" />
                  {language === 'ar' ? 'مكافأة الانتهاء' : 'Completion Bonus'}
               </h4>
-              <p className="text-sm text-slate-500 leading-relaxed font-bold">
+              <p className="text-sm text-slate-400 leading-relaxed font-bold">
                  + {activeTest.questions * 5} XP & {language === 'ar' ? 'تحديث الحمض النووي' : 'DNA Update'}
               </p>
            </div>
@@ -269,59 +375,14 @@ export default function NeuralTests() {
               initial={{ opacity: 0, scale: 0.9 }}
               animate={{ opacity: 1, scale: 1 }}
               exit={{ opacity: 0, scale: 0.9 }}
-              onClick={() => test.status !== 'locked' && setActiveTest(test)}
-              className={cn(
-                "glass-card p-6 border group transition-all cursor-pointer relative overflow-hidden",
-                test.status === 'completed' ? "border-emerald-500/20 bg-emerald-500/5" : "hover:border-brand-primary/30 hover:bg-white/5 border-transparent",
-                test.status === 'locked' && "opacity-50 grayscale cursor-not-allowed"
-              )}
+              className="h-full"
             >
-              <div className="flex justify-between items-start mb-6">
-                <div className={cn(
-                  "p-4 rounded-2xl border transition-all",
-                  test.status === 'completed' ? "bg-emerald-500/10 text-emerald-500 border-emerald-500/10" : "bg-brand-primary/10 text-brand-primary border-brand-primary/10"
-                )}>
-                  <test.icon className="w-6 h-6" />
-                </div>
-                <div className="flex flex-col items-end gap-1">
-                   {test.status === 'new' && (
-                     <span className="text-[9px] font-black uppercase tracking-widest bg-brand-primary text-white px-2 py-0.5 rounded-full">New</span>
-                   )}
-                   {test.status === 'completed' && (
-                     <span className="text-[9px] font-black uppercase tracking-widest bg-emerald-500 text-white px-2 py-0.5 rounded-full">Done</span>
-                   )}
-                   {test.status === 'locked' && (
-                     <span className="text-[9px] font-black uppercase tracking-widest bg-slate-700 text-white px-2 py-0.5 rounded-full flex items-center gap-1">
-                        <Lock className="w-2.5 h-2.5" />
-                        Locked
-                     </span>
-                   )}
-                </div>
-              </div>
-
-              <h4 className="text-lg font-bold text-white mb-2 group-hover:text-brand-primary transition-colors">
-                {language === 'ar' ? test.nameAr : test.nameEn}
-              </h4>
-              <div className="flex items-center gap-4 text-slate-500 mb-8">
-                 <div className="flex items-center gap-1.5 font-bold">
-                   <Target className="w-3.5 h-3.5" />
-                   <span className="text-[9px] uppercase tracking-widest">{test.questions * 5} Pts</span>
-                 </div>
-                 <div className="flex items-center gap-1.5 font-bold">
-                   <Clock className="w-3.5 h-3.5" />
-                   <span className="text-[9px] uppercase tracking-widest">{test.time}</span>
-                 </div>
-              </div>
-
-              <button className={cn(
-                "w-full py-3 rounded-xl font-black text-[9px] uppercase tracking-widest flex items-center justify-center gap-2 transition-all border",
-                test.status === 'completed' 
-                  ? "bg-emerald-500/10 border-emerald-500/20 text-emerald-500 hover:bg-emerald-500 hover:text-white"
-                  : "bg-brand-primary text-white border-transparent hover:brightness-110"
-              )}>
-                {test.status === 'completed' ? (language === 'ar' ? 'إعادة التدقيق' : 'Re-Audit Neural Path') : (language === 'ar' ? 'بدء التقييم' : 'Begin Assessment')}
-                <ChevronRight className={cn("w-3 h-3", isRTL && "rotate-180")} />
-              </button>
+              <NeuralTestCard
+                test={test}
+                onClick={() => setActiveTest(test)}
+                language={language}
+                isRTL={isRTL}
+              />
             </motion.div>
           ))}
         </AnimatePresence>

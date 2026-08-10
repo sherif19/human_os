@@ -25,9 +25,11 @@ import {
 } from 'recharts';
 import { PERSONALITY_TESTS } from '../constants/tests.tsx';
 import { TestRunner } from '../components/personality/TestRunner';
+import { NeuralTestCard } from '../components/personality/NeuralTestCard';
 import { useAuth } from '../hooks/useAuth';
 import { useLanguage } from '../contexts/LanguageContext';
 import { analyzePersonality, getAxisDescription } from '../lib/personalityAnalyzer';
+import { analyzePersonality as analyzePersonalityAPI } from '../services/api';
 
 import { translations, TranslationKey } from '../lib/translations';
 
@@ -95,6 +97,70 @@ export default function PersonalityDNA() {
         completedAt: new Date().toISOString()
       };
       updateData.completedTests = completedTests;
+
+      // Fetch dynamic AI analysis
+      try {
+        const adminId = user.adminId || (user.role === 'admin' || user.role === 'super_admin' ? user.uid : '');
+        const currentScores = {
+          confidence: user.confidence ?? 65,
+          discipline: user.discipline ?? 48,
+          emotional: user.emotional ?? 75,
+          charisma: user.charisma ?? 50,
+          leadership: user.leadership ?? 60,
+          selfWorth: user.selfWorth ?? 55,
+          consistency: user.consistency ?? 45,
+          focus: user.focus ?? 85,
+          social: user.social ?? 40,
+          empathy: user.empathy ?? 70,
+          ...(field ? { [field]: updateData[field] } : {})
+        };
+
+        const aiResult = await analyzePersonalityAPI(
+          answers, 
+          { currentScores, email: user.email, name: user.name }, 
+          [], 
+          adminId
+        );
+
+        if (aiResult && aiResult.archetype) {
+          updateData.archetype = aiResult.archetype;
+          updateData.archetypeAr = aiResult.archetypeAr || aiResult.archetype;
+          updateData.intelligenceInsight = aiResult.insight || aiResult.intelligenceInsight;
+          updateData.intelligenceInsightAr = aiResult.insightAr || aiResult.intelligenceInsightAr;
+          
+          if (Array.isArray(aiResult.strengths)) {
+            updateData.strengths = aiResult.strengths.join(', ');
+          }
+          if (Array.isArray(aiResult.strengthsAr)) {
+            updateData.strengthsAr = aiResult.strengthsAr.join(', ');
+          }
+          if (Array.isArray(aiResult.weaknesses)) {
+            updateData.weaknesses = aiResult.weaknesses.join(', ');
+          }
+          if (Array.isArray(aiResult.weaknessesAr)) {
+            updateData.weaknessesAr = aiResult.weaknessesAr.join(', ');
+          }
+          
+          if (Array.isArray(aiResult.growthPath)) {
+            updateData.growthProtocol = aiResult.growthPath.map((step: string) => `"${step}"`).join(' ');
+          }
+          if (Array.isArray(aiResult.growthPathAr)) {
+            updateData.growthProtocolAr = aiResult.growthPathAr.map((step: string) => `"${step}"`).join(' ');
+          }
+
+          if (Array.isArray(aiResult.recommendations) && aiResult.recommendations.length > 0) {
+            updateData.protocol01 = aiResult.recommendations[0];
+            updateData.protocol01Ar = aiResult.recommendationsAr?.[0] || aiResult.recommendations[0];
+            if (aiResult.recommendations.length > 1) {
+              updateData.protocol02 = aiResult.recommendations[1];
+              updateData.protocol02Ar = aiResult.recommendationsAr?.[1] || aiResult.recommendations[1];
+            }
+          }
+        }
+      } catch (err) {
+        console.error("AI Personality Analysis failed:", err);
+        throw err;
+      }
 
       await updateUser(updateData);
     }
@@ -345,37 +411,28 @@ export default function PersonalityDNA() {
             exit={{ opacity: 0 }}
             className="grid sm:grid-cols-2 lg:grid-cols-3 gap-6"
           >
-            {PERSONALITY_TESTS.map((test) => (
-              <div 
-                key={test.id} 
-                className="glass-card hover:bg-white/5 transition-all cursor-pointer group"
-                onClick={() => setActiveTest(test)}
-              >
-                <div className="flex justify-between items-start mb-6">
-                  <div className="p-4 rounded-2xl bg-brand-primary/10 text-brand-primary border border-brand-primary/10">
-                    <test.icon className="w-6 h-6" />
-                  </div>
-                  <div className="w-8 h-8 rounded-full bg-white/5 flex items-center justify-center">
-                    <Play className="w-3.5 h-3.5 text-slate-500 group-hover:text-white transition-colors" />
-                  </div>
-                </div>
-                <h4 className="text-xl font-bold text-white mb-2 tracking-tight">
-                  {t(test.nameKey as TranslationKey)}
-                </h4>
-                <p className="text-xs text-slate-500 font-bold uppercase tracking-wider mb-6">{test.questions} {language === 'ar' ? 'فصل في التقييم' : 'Assessment Points'}</p>
-                
-                <div className="flex items-center gap-4 mb-4">
-                  <button className="text-[8px] font-black uppercase tracking-widest text-brand-primary flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-                     <HelpCircle size={10} /> {t('explanation')}
-                  </button>
-                </div>
-
-                <button className="w-full py-3 rounded-xl font-black text-[10px] uppercase tracking-widest flex items-center justify-center gap-2 bg-brand-primary text-white hover:brightness-110 transition-all border border-white/10">
-                  {t('begin_execution')}
-                  <ChevronRight className={cn("w-3 h-3", isRTL && "rotate-180")} />
-                </button>
-              </div>
-            ))}
+            {PERSONALITY_TESTS.map((test) => {
+              const isCompleted = user?.completedTests?.[test.id] !== undefined;
+              const nameEn = translations['en'][test.nameKey as TranslationKey] || test.nameKey;
+              const nameAr = translations['ar'][test.nameKey as TranslationKey] || test.nameKey;
+              const testWithStatus = {
+                ...test,
+                nameEn,
+                nameAr,
+                status: isCompleted ? 'completed' as const : 'available' as const,
+                time: '6 min',
+              };
+              return (
+                <NeuralTestCard
+                  key={test.id}
+                  test={testWithStatus}
+                  onClick={() => setActiveTest(test)}
+                  language={language}
+                  isRTL={isRTL}
+                  simplified={true}
+                />
+              );
+            })}
           </motion.div>
         )}
 

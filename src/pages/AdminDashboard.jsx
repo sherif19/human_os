@@ -46,6 +46,8 @@ import { db, firebaseConfig } from '../lib/firebase';
 import { useAuth } from '../hooks/useAuth';
 import BrandingSettings from './BrandingSettings';
 import PaymentSettingsPage from './PaymentSettingsPage';
+import AISettingsPage from './AISettingsPage';
+import PackagesSettingsPage from './PackagesSettingsPage';
 import { formatUserDate } from '../lib/utils';
 
 const countryData = {
@@ -389,9 +391,21 @@ const AdminDashboard = () => {
       const newExpiresDate = new Date(baseDate);
       newExpiresDate.setDate(newExpiresDate.getDate() + daysToAdd);
       
+      let subscriptionTier = 'silver'; // Default fallback
+      const planLower = (payment.planName || '').toLowerCase();
+      if (planLower.includes('bronze') || planLower.includes('برونز')) {
+        subscriptionTier = 'bronze';
+      } else if (planLower.includes('silver') || planLower.includes('فض')) {
+        subscriptionTier = 'silver';
+      } else if (planLower.includes('gold') || planLower.includes('ذهب')) {
+        subscriptionTier = 'gold';
+      }
+
       await setDoc(userRef, {
         expiresAt: newExpiresDate,
-        isTrial: false
+        isTrial: false,
+        subscriptionTier: subscriptionTier,
+        planName: payment.planName
       }, { merge: true });
       
       await setDoc(doc(db, 'payments', payment.id), {
@@ -1248,6 +1262,10 @@ const AdminDashboard = () => {
         <BrandingSettings />
       ) : activeTab === 'payments' && userData?.role === 'admin' ? (
         <PaymentSettingsPage />
+      ) : activeTab === 'packages' && userData?.role === 'admin' ? (
+        <PackagesSettingsPage />
+      ) : activeTab === 'ai' && userData?.role === 'admin' ? (
+        <AISettingsPage />
       ) : activeTab === 'appointments' && userData?.role === 'admin' ? (
         <div className="card" style={{ padding: '0', overflow: 'hidden', marginBottom: '24px' }}>
           <div style={{ padding: '20px', borderBottom: '1px solid var(--line)' }}>

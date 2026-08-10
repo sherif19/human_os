@@ -60,6 +60,8 @@ export interface User {
   adminEmail?: string;
   adminName?: string;
   licenseKey?: string;
+  subscriptionTier?: 'bronze' | 'silver' | 'gold' | string;
+  planName?: string;
   phoneNumber?: string;
   country?: string;
   createdAt?: any;
