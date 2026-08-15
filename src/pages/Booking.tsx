@@ -11,7 +11,11 @@ import {
   FileText,
   User,
   Sparkles,
-  ArrowRight
+  Video,
+  MessageSquare,
+  ExternalLink,
+  Send,
+  X
 } from 'lucide-react';
 import { useAuth } from '../hooks/useAuth';
 import { useLanguage } from '../contexts/LanguageContext';
@@ -36,6 +40,10 @@ export default function Booking() {
   const [loading, setLoading] = useState(false);
   const [submitSuccess, setSubmitSuccess] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  // Chat & Meeting State
+  const [activeChatAppt, setActiveChatAppt] = useState<any | null>(null);
+  const [userChatInput, setUserChatInput] = useState('');
 
   // Time Slots definition (Localized, 30-minute intervals from 09:00 AM to 06:00 PM)
   const generateTimeSlots = () => {
@@ -238,6 +246,59 @@ export default function Booking() {
       alert(language === 'ar' ? 'فشل حجز الموعد. يرجى المحاولة مرة أخرى.' : 'Failed to book appointment. Please try again.');
     } finally {
       setLoading(false);
+    }
+  };
+
+  const handleSendUserMessage = async (apptId: string, text: string) => {
+    if (!text.trim() || !user) return;
+    const newMessage = {
+      id: `msg-${Date.now()}`,
+      senderId: user.uid,
+      senderName: user.name || user.email?.split('@')[0] || (isRTL ? 'العميل' : 'Client'),
+      role: 'user',
+      text: text.trim(),
+      timestamp: new Date().toISOString()
+    };
+
+    try {
+      if (user.uid.startsWith('demo-')) {
+        const stored = localStorage.getItem('humanos_demo_appointments');
+        if (stored) {
+          const parsed = JSON.parse(stored);
+          const idx = parsed.findIndex((b: any) => b.id === apptId);
+          if (idx !== -1) {
+            const existingMsgs = parsed[idx].messages || [];
+            parsed[idx].messages = [...existingMsgs, newMessage];
+            localStorage.setItem('humanos_demo_appointments', JSON.stringify(parsed));
+            window.dispatchEvent(new Event('storage'));
+
+            const userBookings = parsed.filter((b: any) => b.userId === user.uid);
+            userBookings.sort((a: any, b: any) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+            setAppointments(userBookings);
+
+            if (activeChatAppt && activeChatAppt.id === apptId) {
+              setActiveChatAppt(parsed[idx]);
+            }
+          }
+        }
+      } else {
+        const targetAppt = appointments.find(a => a.id === apptId);
+        const existingMsgs = targetAppt?.messages || [];
+        const updatedMsgs = [...existingMsgs, newMessage];
+        await setDoc(doc(db, 'appointments', apptId), {
+          messages: updatedMsgs
+        }, { merge: true });
+
+        if (activeChatAppt && activeChatAppt.id === apptId) {
+          setActiveChatAppt({
+            ...activeChatAppt,
+            messages: updatedMsgs
+          });
+        }
+      }
+      setUserChatInput('');
+    } catch (err) {
+      console.error("Error sending user appointment message:", err);
     }
   };
 
@@ -562,12 +623,13 @@ export default function Booking() {
                 <th className="p-5 text-xs font-black text-slate-500 uppercase tracking-widest">{labels.colDate}</th>
                 <th className="p-5 text-xs font-black text-slate-500 uppercase tracking-widest">{labels.colNote}</th>
                 <th className="p-5 text-xs font-black text-slate-500 uppercase tracking-widest text-center">{labels.colStatus}</th>
+                <th className="p-5 text-xs font-black text-slate-500 uppercase tracking-widest text-center">{language === 'ar' ? 'الرابط والمحادثة' : 'Meeting & Chat'}</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-white/5 text-xs font-semibold text-slate-400">
               {error ? (
                 <tr>
-                  <td colSpan={3} className="p-10 text-center text-rose-500 font-bold">
+                  <td colSpan={4} className="p-10 text-center text-rose-500 font-bold">
                     {language === 'ar' 
                       ? 'حدث خطأ أثناء تحميل سجل المواعيد. يرجى مراجعة المسؤول لتفعيل الصلاحيات.' 
                       : 'An error occurred loading appointment history. Please contact the administrator to enable rules.'}
@@ -575,7 +637,7 @@ export default function Booking() {
                 </tr>
               ) : appointments.length === 0 ? (
                 <tr>
-                  <td colSpan={3} className="p-10 text-center text-slate-600 font-bold uppercase tracking-widest">
+                  <td colSpan={4} className="p-10 text-center text-slate-600 font-bold uppercase tracking-widest">
                     {labels.noHistory}
                   </td>
                 </tr>
@@ -606,8 +668,13 @@ export default function Booking() {
                           {slotLabel}
                         </div>
                       </td>
-                      <td className="p-5 max-w-xs truncate font-medium text-slate-300">
-                        {appt.note || '—'}
+                      <td className="p-5 max-w-xs font-medium text-slate-300">
+                        <div>{appt.note || '—'}</div>
+                        {appt.meetingNotes && (
+                          <p className="text-[10px] text-cyan-400 mt-1 italic">
+                            💡 {appt.meetingNotes}
+                          </p>
+                        )}
                       </td>
                       <td className="p-5 text-center">
                         <span className={cn(
@@ -617,6 +684,45 @@ export default function Booking() {
                           {statusLabels}
                         </span>
                       </td>
+                      <td className="p-5 text-center">
+                        {appt.status === 'approved' ? (
+                          <div className="flex flex-col sm:flex-row items-center justify-center gap-2">
+                            {appt.meetingLink ? (
+                              <a
+                                href={appt.meetingLink}
+                                target="_blank"
+                                rel="noreferrer"
+                                className="px-3 py-1.5 rounded-xl bg-gradient-to-r from-emerald-500 to-teal-600 text-white font-bold text-[10px] uppercase tracking-wider shadow-lg shadow-emerald-500/20 hover:scale-105 transition-all flex items-center gap-1.5 shrink-0"
+                              >
+                                <Video size={12} className="animate-pulse" />
+                                <span>{language === 'ar' ? 'الانضمام للاجتماع المباشر' : 'Join Live Meeting'}</span>
+                                <ExternalLink size={10} />
+                              </a>
+                            ) : (
+                              <span className="text-[10px] text-slate-500 font-semibold italic">
+                                {language === 'ar' ? 'جاري تجهيز الرابط...' : 'Meeting link pending...'}
+                              </span>
+                            )}
+
+                            <button
+                              onClick={() => setActiveChatAppt(appt)}
+                              className="px-3 py-1.5 rounded-xl bg-brand-primary/10 border border-brand-primary/30 text-brand-primary font-bold text-[10px] uppercase tracking-wider hover:bg-brand-primary hover:text-white transition-all flex items-center gap-1.5 shrink-0"
+                            >
+                              <MessageSquare size={12} />
+                              <span>{language === 'ar' ? 'محادثة المدرب' : 'Chat with Coach'}</span>
+                              {appt.messages?.length > 0 && (
+                                <span className="w-4 h-4 rounded-full bg-brand-primary text-black text-[9px] font-extrabold flex items-center justify-center">
+                                  {appt.messages.length}
+                                </span>
+                              )}
+                            </button>
+                          </div>
+                        ) : (
+                          <span className="text-[10px] text-slate-600 font-semibold">
+                            {language === 'ar' ? 'ينتظر الموافقة' : 'Awaiting Approval'}
+                          </span>
+                        )}
+                      </td>
                     </tr>
                   );
                 })
@@ -625,6 +731,113 @@ export default function Booking() {
           </table>
         </div>
       </div>
+
+      {/* User <-> Coach Live Chat Modal */}
+      <AnimatePresence>
+        {activeChatAppt && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-md">
+            <motion.div
+              initial={{ opacity: 0, scale: 0.9, y: 20 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.9, y: 20 }}
+              className="max-w-md w-full glass-card p-5 rounded-3xl bg-slate-950 border border-brand-primary/40 shadow-2xl space-y-4 relative flex flex-col h-[520px]"
+            >
+              {/* Header */}
+              <div className="flex justify-between items-center pb-3 border-b border-white/10">
+                <div className="flex items-center gap-2.5">
+                  <div className="w-10 h-10 rounded-xl bg-brand-primary/10 border border-brand-primary/30 flex items-center justify-center text-brand-primary font-bold">
+                    <User size={20} />
+                  </div>
+                  <div>
+                    <h3 className="text-sm font-bold text-white leading-tight">
+                      {language === 'ar' ? 'محادثة الموعد المباشرة مع المستشار' : 'Direct Session Chat'}
+                    </h3>
+                    <p className="text-[10px] text-slate-400 font-semibold">
+                      📅 {activeChatAppt.date} | 🕒 {activeChatAppt.timeSlot}
+                    </p>
+                  </div>
+                </div>
+
+                <button 
+                  onClick={() => setActiveChatAppt(null)}
+                  className="text-slate-400 hover:text-white p-1.5 rounded-xl hover:bg-white/5 transition-colors"
+                >
+                  <X size={18} />
+                </button>
+              </div>
+
+              {/* Live Meeting Banner if available */}
+              {activeChatAppt.meetingLink && (
+                <a
+                  href={activeChatAppt.meetingLink}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="p-3 rounded-2xl bg-gradient-to-r from-emerald-500/20 via-teal-500/20 to-cyan-500/20 border border-emerald-500/30 flex items-center justify-between text-xs font-bold text-emerald-300 hover:brightness-110 transition-all shadow-md"
+                >
+                  <div className="flex items-center gap-2">
+                    <Video size={16} className="text-emerald-400 animate-pulse" />
+                    <span>{language === 'ar' ? 'رابط الاجتماع المباشر جاهز للانضمام' : 'Live Meeting Room Ready'}</span>
+                  </div>
+                  <ExternalLink size={12} />
+                </a>
+              )}
+
+              {/* Message Feed */}
+              <div className="flex-1 overflow-y-auto space-y-3 pr-1">
+                {(!activeChatAppt.messages || activeChatAppt.messages.length === 0) ? (
+                  <div className="h-full flex flex-col items-center justify-center text-center p-6 text-slate-500 text-xs">
+                    <MessageSquare size={32} className="mb-2 text-brand-primary/40 animate-bounce" />
+                    <p>{language === 'ar' ? 'لا توجد رسائل بعد. يمكنك كتابة استفسارك أو الملاحظات المباشرة للمستشار هنا.' : 'No messages yet. Send a direct message to your advisor now.'}</p>
+                  </div>
+                ) : (
+                  activeChatAppt.messages.map((msg: any) => {
+                    const isUser = msg.senderId === user?.uid || msg.role === 'user';
+                    return (
+                      <div
+                        key={msg.id || Math.random()}
+                        className={cn(
+                          "max-w-[85%] p-3 rounded-2xl text-xs leading-relaxed space-y-1",
+                          isUser
+                            ? "mr-auto bg-gradient-to-r from-brand-primary to-indigo-600 text-white rounded-bl-sm"
+                            : "ml-auto bg-white/10 text-slate-200 border border-white/10 rounded-br-sm"
+                        )}
+                      >
+                        <div className="text-[9px] font-bold opacity-75 flex justify-between gap-4">
+                          <span>{msg.senderName} ({isUser ? (language === 'ar' ? 'أنت' : 'You') : (language === 'ar' ? 'المدرب' : 'Coach')})</span>
+                        </div>
+                        <p>{msg.text}</p>
+                      </div>
+                    );
+                  })
+                )}
+              </div>
+
+              {/* Message Input */}
+              <form
+                onSubmit={(e) => {
+                  e.preventDefault();
+                  handleSendUserMessage(activeChatAppt.id, userChatInput);
+                }}
+                className="flex items-center gap-2 pt-2 border-t border-white/10"
+              >
+                <input
+                  type="text"
+                  placeholder={language === 'ar' ? 'اكتب رسالة للمستشار...' : 'Type a message...'}
+                  value={userChatInput}
+                  onChange={(e) => setUserChatInput(e.target.value)}
+                  className="flex-1 bg-white/5 border border-white/10 rounded-xl px-4 py-2.5 text-xs text-white focus:outline-none focus:border-brand-primary/40 transition-all"
+                />
+                <button
+                  type="submit"
+                  className="p-2.5 rounded-xl bg-brand-primary text-white hover:brightness-110 active:scale-95 transition-all shadow-md shadow-brand-primary/30"
+                >
+                  <Send size={14} className={cn(isRTL && "rotate-180")} />
+                </button>
+              </form>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
     </div>
   );
 }

@@ -7,9 +7,14 @@ import dotenv from "dotenv";
 dotenv.config();
 
 const app = express();
-const PORT = 3000;
+const PORT = Number(process.env.PORT) || 3000;
 
 app.use(express.json());
+
+// Health check endpoint for cloud deployment monitors
+app.get("/api/health", (req, res) => {
+  res.json({ status: "ok", timestamp: new Date().toISOString() });
+});
 
 import { initializeApp } from "firebase/app";
 import { getFirestore, doc, getDoc } from "firebase/firestore";
@@ -376,45 +381,45 @@ app.post("/api/ai/coach", async (req, res) => {
     const { message, mode, memory, personalityData, adminId } = req.body;
     
     const modes: Record<string, string> = {
-      "Warm Therapist": "Embody a world-class Psychologist. Focus on emotional IQ, validation of deep-seated patterns, and safe space for exploration.",
-      "Tough Coach": "Embody a high-performance Behavior Analyst and Coach. Focus on elimination of excuses, raw discipline, and measurable output.",
-      "Wise Mentor": "Embody a Strategic Mindset Mentor. Focus on long-term philosophy, identifying the 'meta-game' of life, and wisdom-sharing.",
-      "Best Friend": "Embody a loyal, high-EQ companion who understands the user's internal struggles but won't let them stay down.",
-      "Productivity Expert": "Embody a Systems Architect. Focus on time usage, neural bandwidth optimization, and extreme efficiency.",
+      "Warm Therapist": "Embody a world-class Psychologist & Counselor. Focus on emotional validation, deep listening, and warm empathetic dialogue.",
+      "Tough Coach": "Embody a high-performance Behavior Analyst & Hardcore Coach. Focus on raw accountability, zero excuses, and concrete action steps.",
+      "Wise Mentor": "Embody a Strategic Mindset Mentor. Focus on long-term philosophy, meta-strategy, and wise tailored reflection.",
+      "Best Friend": "Embody a loyal, relatable companion who understands internal struggles and speaks casually and warmly.",
+      "Productivity Expert": "Embody a Systems Architect. Focus on focus optimization, habit systems, and high-efficiency output.",
     };
 
     const systemInstruction = `
-      ${modes[mode] || modes["Wise Mentor"]}
+      CURRENT PERSONA MODE: ${modes[mode] || modes["Wise Mentor"]}
       
-      GLOBAL IDENTITY: You are the core Intelligence Layer of HumanOS AI. You are NOT a generic chatbot. You are a multidisciplinary mentor (Psychologist + Coach + Strategist).
+      GLOBAL IDENTITY: You are the core Intelligence Mentor of HumanOS AI. You are engaged in a LIVE, DYNAMIC CONVERSATION with the user.
       
-      CORE MANDATE:
-      1. Be specific, psychologically informed, and emotionally intelligent. 
-      2. No generic motivational talk. Tell the user what they NEED to hear based on their data.
-      3. Use their Personality DNA to personalize every strategy.
-      4. If they have a 'Strategist' archetype, speak in models and logic. If they have an 'Empathetic' archetype, speak in feelings and connection.
-      5. Language Mirroring: Always respond in the same language that the user is messaging you in. If they message you in Arabic, respond in Arabic. If English, in English.
+      CRITICAL DIALOGUE DIRECTIVES:
+      1. REAL CONVERSATION: You are having an ongoing dialogue with the user. Read the entire conversation history carefully.
+      2. NO REPETITIVE TEMPLATES: DO NOT start every response with rigid repeated headings like "# فهم التوتر" or "# استراتيجيات". Respond naturally, conversationally, and direct to the point.
+      3. DIRECT REACTION TO USER: Address the user's EXACT message and emotion. If the user asks why responses are repeated or static, acknowledge it candidly as a human mentor would, apologize for any previous rigid structure, and speak directly from the heart.
+      4. VARY YOUR STYLE & LENGTH: Match the user's message length and intensity. If the user sends a quick question or complaint, give a direct, concise, natural response. Don't write a long article when a conversational answer is needed.
+      5. LANGUAGE & TONE: Always mirror the user's exact language (Arabic vs English). Use warm, intelligent, authentic Arabic if the user speaks Arabic.
       
-      USER DNA CONTEXT:
+      USER DNA PROFILE:
       ${JSON.stringify(personalityData)}
-      
-      CONVERSATION MEMORY:
-      ${JSON.stringify(memory)}
-      
-      Rules:
-      - Max 3 paragraphs per response.
-      - Use Markdown for hierarchy (Headers, Bold, Lists).
-      - Always end with a challenging question or a precise next step.
     `;
 
     const aiConfig = await getTenantAIConfig(adminId);
     let responseText = "";
 
+    const conversationHistory = Array.isArray(memory) ? memory : [];
+
     if (aiConfig.aiProvider === "openai" && aiConfig.openaiApiKey) {
       console.log(`Using OpenAI (GPT) for coaching (adminId: ${adminId})`);
+      const formattedOpenAiMessages = conversationHistory.map((m: any) => ({
+        role: m.role === 'assistant' ? 'assistant' : 'user',
+        content: m.content
+      }));
+      formattedOpenAiMessages.push({ role: "user", content: message });
+
       responseText = await callOpenAI(
         aiConfig.openaiApiKey,
-        [{ role: "user", content: message }],
+        formattedOpenAiMessages,
         systemInstruction
       );
     } else {
@@ -423,9 +428,16 @@ app.post("/api/ai/coach", async (req, res) => {
         apiKey: aiConfig.geminiApiKey || process.env.GEMINI_API_KEY || "",
         httpOptions: { headers: { 'User-Agent': 'aistudio-build' } }
       });
+
+      const formattedGeminiContents = conversationHistory.map((m: any) => ({
+        role: m.role === 'assistant' ? 'model' : 'user',
+        parts: [{ text: m.content }]
+      }));
+      formattedGeminiContents.push({ role: 'user', parts: [{ text: message }] });
+
       const result = await genAIClient.models.generateContent({
         model: "gemini-3-flash-preview",
-        contents: [{ parts: [{ text: message }] }],
+        contents: formattedGeminiContents,
         config: {
           systemInstruction
         }
@@ -436,6 +448,65 @@ app.post("/api/ai/coach", async (req, res) => {
     res.json({ response: responseText });
   } catch (error: any) {
     console.error("Coaching Error:", error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// AI Dynamic Test Generation Endpoint
+app.post("/api/ai/generate-test", async (req, res) => {
+  try {
+    const { testId, testName, userProfile, adminId } = req.body;
+    
+    const systemInstruction = `
+      You are HumanOS AI Neural Diagnostic Engine.
+      Generate 5 highly realistic, engaging, psychological & behavioral assessment questions for the test "${testName}" (ID: ${testId}).
+      
+      Requirements:
+      - Return ONLY a valid JSON array of 5 question objects. No markdown backticks, no text outside JSON.
+      - Each question object MUST have:
+        {
+          "id": "q1",
+          "text": "English question text presenting a vivid scenario",
+          "textAr": "نص السؤال بالعربية يمثل سيناريو واقعي مشوق وعميق",
+          "imageUrl": "https://images.unsplash.com/photo-1618005182384-a83a8bd57fbe?auto=format&fit=crop&w=800&q=80",
+          "options": [
+            { "value": 1, "label": "Strongly Disagree", "labelAr": "لا ينطبق عليّ إطلاقاً", "icon": "❌" },
+            { "value": 2, "label": "Slightly Disagree", "labelAr": "ينطبق بنسبة ضئيلة", "icon": "⚡" },
+            { "value": 3, "label": "Neutral", "labelAr": "ينطبق محايداً أحياناً", "icon": "⚖️" },
+            { "value": 4, "label": "Mostly Agree", "labelAr": "ينطبق عليّ كثيراً", "icon": "🎯" },
+            { "value": 5, "label": "Strongly Agree", "labelAr": "ينطبق بامتياز دائماً", "icon": "🔥" }
+          ]
+        }
+      - Make the scenarios deeply relevant to: ${userProfile ? JSON.stringify(userProfile) : "General Human Development"}.
+    `;
+
+    const aiConfig = await getTenantAIConfig(adminId);
+    let responseText = "";
+
+    if (aiConfig.aiProvider === "openai" && aiConfig.openaiApiKey) {
+      responseText = await callOpenAI(
+        aiConfig.openaiApiKey,
+        [{ role: "user", content: `Generate 5 dynamic JSON questions for ${testName}` }],
+        systemInstruction
+      );
+    } else {
+      const genAIClient = new GoogleGenAI({
+        apiKey: aiConfig.geminiApiKey || process.env.GEMINI_API_KEY || "",
+        httpOptions: { headers: { 'User-Agent': 'aistudio-build' } }
+      });
+      const result = await genAIClient.models.generateContent({
+        model: "gemini-3-flash-preview",
+        contents: [{ parts: [{ text: `Generate 5 dynamic JSON questions for ${testName}` }] }],
+        config: { systemInstruction }
+      });
+      responseText = result.text || "";
+    }
+
+    const cleanedText = responseText.replace(/```json/g, '').replace(/```/g, '').trim();
+    const questions = JSON.parse(cleanedText);
+    res.json({ questions });
+  } catch (error: any) {
+    console.error("Test Generation Error:", error);
     res.status(500).json({ error: error.message });
   }
 });

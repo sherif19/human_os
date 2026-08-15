@@ -103,29 +103,7 @@ export default function Auth() {
         const userRef = doc(db, 'users', uid);
         const userSnap = await getDoc(userRef);
 
-        if (userSnap.exists()) {
-          const userData = userSnap.data();
-          if (userData.role === 'user' || !userData.role) {
-            if (!userData.isTrial) {
-              if (!formData.licenseCode) {
-                await signOut();
-                throw new Error(
-                  language === 'ar'
-                    ? 'يرجى إدخال كود الترخيص الخاص بك'
-                    : 'Please enter your license key'
-                );
-              }
-              if (userData.licenseKey !== formData.licenseCode) {
-                await signOut();
-                throw new Error(
-                  language === 'ar'
-                    ? 'كود الترخيص المدخل غير مطابق لهذا الحساب'
-                    : 'The entered license key does not match this account'
-                );
-              }
-            }
-          }
-        }
+        // Login check completed successfully without license key requirement
       } else {
         if (!formData.email || !formData.password) {
           throw new Error(language === 'ar' ? 'يرجى تعبئة جميع الحقول المطلوبة' : 'Please fill all required fields');
@@ -367,26 +345,7 @@ export default function Auth() {
               </div>
             </div>
 
-            {mode === 'login' && (
-              <div className="space-y-1">
-                <label className="text-[10px] font-black uppercase tracking-widest text-slate-500 ml-1">
-                  {language === 'ar' ? 'كود الترخيص (License Key)' : 'License Key'}
-                </label>
-                <div className="relative">
-                  <Zap className={cn("absolute top-1/2 -translate-y-1/2 w-4 h-4 text-slate-600", isRTL ? "right-4" : "left-4")} />
-                  <input
-                    type="text"
-                    value={formData.licenseCode}
-                    onChange={(e) => setFormData({ ...formData, licenseCode: e.target.value })}
-                    placeholder="GS-XXXX-XXXX-XXXX"
-                    className={cn(
-                      "w-full bg-white/5 border border-white/5 focus:border-brand-primary/50 focus:bg-white/10 rounded-2xl py-4 outline-none transition-all text-white font-medium text-sm",
-                      isRTL ? "pr-12 pl-6 text-right" : "pl-12 pr-6 text-left"
-                    )}
-                  />
-                </div>
-              </div>
-            )}
+
 
             {mode === 'signup' && tenantConfig.termsEnabled && (
               <div className="flex items-start gap-3 mt-4 select-none">

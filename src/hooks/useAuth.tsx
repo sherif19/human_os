@@ -54,13 +54,14 @@ export interface User {
   email: string | null;
   photoURL: string | null;
   onboardingComplete?: boolean;
-  role?: 'user' | 'admin' | 'super_admin' | 'employee';
+  role?: 'user' | 'admin' | 'super_admin' | 'employee' | string;
   expiresAt?: any;
   adminId?: string;
   adminEmail?: string;
   adminName?: string;
   licenseKey?: string;
   subscriptionTier?: 'bronze' | 'silver' | 'gold' | string;
+  subscriptionType?: 'days' | 'months' | 'lifetime' | string;
   planName?: string;
   phoneNumber?: string;
   country?: string;

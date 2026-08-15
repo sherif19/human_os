@@ -6,6 +6,7 @@ import { db } from '../../lib/firebase';
 import { doc, getDoc } from 'firebase/firestore';
 import { Lock, ArrowRight } from 'lucide-react';
 import { useLanguage } from '../../contexts/LanguageContext';
+import { NeuralContentLoader } from './DashboardLayout';
 
 export function SubscriptionGuard({ children }: { children: React.ReactNode }) {
   const { user } = useAuth();
@@ -34,14 +35,7 @@ export function SubscriptionGuard({ children }: { children: React.ReactNode }) {
   }, [adminId]);
 
   if (loading) {
-    return (
-      <div className="min-h-[60vh] flex flex-col items-center justify-center space-y-3">
-        <div className="w-6 h-6 border-2 border-brand-primary border-t-transparent rounded-full animate-spin" />
-        <span className="text-xs text-slate-500 font-bold uppercase tracking-widest">
-          {language === 'ar' ? 'جاري التحقق من الصلاحيات...' : 'Verifying tier authorization...'}
-        </span>
-      </div>
-    );
+    return <NeuralContentLoader />;
   }
 
   const isUnlocked = isPathUnlocked(user, location.pathname, tenantConfig);

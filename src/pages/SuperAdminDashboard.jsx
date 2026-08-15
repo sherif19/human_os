@@ -275,9 +275,11 @@ const SuperAdminDashboard = () => {
           expiresAt = new Date();
           expiresAt.setMonth(expiresAt.getMonth() + parseInt(editingUser.subscriptionDuration || '1'));
         }
+        updateData.subscriptionTier = editingUser.subscriptionTier || 'silver';
         updateData.subscriptionType = editingUser.subscriptionType;
         updateData.subscriptionDuration = editingUser.subscriptionType === 'lifetime' ? null : editingUser.subscriptionDuration;
         updateData.expiresAt = expiresAt;
+        updateData.isTrial = false;
       }
       await updateDoc(doc(db, 'users', editingUser.id), updateData);
       setShowEditModal(false);
@@ -288,6 +290,39 @@ const SuperAdminDashboard = () => {
       setError(t('superAdmin.errorUpdate') + err.message);
     } finally {
       setIsCreating(false);
+    }
+  };
+
+  const handleQuickChangePlan = async (userId, newTier) => {
+    try {
+      await updateDoc(doc(db, 'users', userId), {
+        subscriptionTier: newTier,
+        isTrial: false
+      });
+      fetchUsers();
+      toast(t('superAdmin.toastUpdated'), 'success');
+    } catch (err) {
+      console.error("Error updating plan:", err);
+      setError(err.message);
+    }
+  };
+
+  const handleQuickExtendSubscription = async (user, extraDays = 30) => {
+    try {
+      let currentExp = user.expiresAt ? (user.expiresAt.toDate ? user.expiresAt.toDate() : (user.expiresAt.seconds ? new Date(user.expiresAt.seconds * 1000) : new Date(user.expiresAt))) : new Date();
+      if (currentExp < new Date()) currentExp = new Date();
+      const newExp = new Date(currentExp);
+      newExp.setDate(newExp.getDate() + extraDays);
+
+      await updateDoc(doc(db, 'users', user.id), {
+        expiresAt: newExp,
+        isTrial: false
+      });
+      fetchUsers();
+      toast(t('superAdmin.toastUpdated'), 'success');
+    } catch (err) {
+      console.error("Error extending subscription:", err);
+      setError(err.message);
     }
   };
 
@@ -660,6 +695,48 @@ const SuperAdminDashboard = () => {
                             </span>
                           );
                         })()}
+
+                        {user.role === 'user' && (
+                          <div style={{ marginTop: '6px', display: 'flex', alignItems: 'center', gap: '6px', flexWrap: 'wrap' }} onClick={e => e.stopPropagation()}>
+                            <select
+                              value={user.subscriptionTier || 'silver'}
+                              onChange={(e) => handleQuickChangePlan(user.id, e.target.value)}
+                              style={{
+                                background: user.subscriptionTier === 'gold' ? 'rgba(245, 158, 11, 0.15)' : user.subscriptionTier === 'bronze' ? 'rgba(148, 163, 184, 0.15)' : 'rgba(99, 102, 241, 0.15)',
+                                color: user.subscriptionTier === 'gold' ? '#f59e0b' : user.subscriptionTier === 'bronze' ? '#cbd5e1' : 'var(--accent)',
+                                border: `1px solid ${user.subscriptionTier === 'gold' ? 'rgba(245, 158, 11, 0.3)' : user.subscriptionTier === 'bronze' ? 'rgba(148, 163, 184, 0.3)' : 'rgba(99, 102, 241, 0.3)'}`,
+                                borderRadius: '6px',
+                                padding: '2px 6px',
+                                fontSize: '11px',
+                                fontWeight: 'bold',
+                                cursor: 'pointer'
+                              }}
+                            >
+                              <option value="bronze">{language === 'ar' ? '🥉 الباقة الأولى (Bronze)' : '🥉 Plan 1 (Bronze)'}</option>
+                              <option value="silver">{language === 'ar' ? '🥈 الباقة الثانية (Silver)' : '🥈 Plan 2 (Silver)'}</option>
+                              <option value="gold">{language === 'ar' ? '🥇 الباقة الذهبية (Gold VIP)' : '🥇 Plan 3 (Gold VIP)'}</option>
+                            </select>
+
+                            <button
+                              type="button"
+                              onClick={() => handleQuickExtendSubscription(user, 30)}
+                              className="btn btn-xs"
+                              style={{
+                                background: 'rgba(16, 185, 129, 0.15)',
+                                color: 'var(--green)',
+                                border: '1px solid rgba(16, 185, 129, 0.3)',
+                                borderRadius: '6px',
+                                padding: '2px 6px',
+                                fontSize: '10px',
+                                fontWeight: 'bold',
+                                cursor: 'pointer'
+                              }}
+                              title={language === 'ar' ? 'تمديد الاشتراك لمدة 30 يوم' : 'Extend 30 Days'}
+                            >
+                              +30 {language === 'ar' ? 'يوم' : 'Days'}
+                            </button>
+                          </div>
+                        )}
                       </td>
                       <td style={{ padding: '14px 20px', color: 'var(--text2)', fontSize: '13px' }}>
                         {user.adminName || (user.adminEmail ? user.adminEmail.split('@')[0] : <span style={{ color: 'var(--text3)' }}>{t('superAdmin.system')}</span>)}
@@ -831,47 +908,55 @@ const SuperAdminDashboard = () => {
                 </div>
 
                 {activeTab === 'users_clients' && (
-                  <div className="grid-2" style={{ gap: '12px', marginBottom: '12px' }}>
-                    <div className="field">
-                      <label className="field-label">{t('common.subType')}</label>
+                  <>
+                    <div className="field" style={{ marginBottom: '12px' }}>
+                      <label className="field-label" style={{ fontWeight: 'bold', color: 'var(--accent)' }}>
+                        {language === 'ar' ? 'خطة الاشتراك / الباقة (Subscription Plan)' : 'Subscription Plan'}
+                      </label>
                       <select
                         className="form-control"
-                        value={newUser.subscriptionType || 'months'}
-                        onChange={e => setNewUser({ ...newUser, subscriptionType: e.target.value, subscriptionDuration: e.target.value === 'lifetime' ? '' : '1' })}
+                        style={{ borderColor: 'var(--accent)', background: 'rgba(99,102,241,0.08)', fontWeight: 'bold' }}
+                        value={newUser.subscriptionTier || 'silver'}
+                        onChange={e => setNewUser({ ...newUser, subscriptionTier: e.target.value })}
                       >
-                        <option value="days">{t('common.daysOpt')}</option>
-                        <option value="months">{t('common.monthsOpt')}</option>
-                        <option value="lifetime">{t('common.lifetimeOpt')}</option>
+                        <option value="bronze">{language === 'ar' ? '🥉 الباقة الأولى (Bronze Plan)' : '🥉 Plan 1 (Bronze)'}</option>
+                        <option value="silver">{language === 'ar' ? '🥈 الباقة الثانية (Silver Plan - Pro)' : '🥈 Plan 2 (Silver)'}</option>
+                        <option value="gold">{language === 'ar' ? '🥇 الباقة الذهبية (Gold Plan - VIP)' : '🥇 Plan 3 (Gold / VIP)'}</option>
                       </select>
                     </div>
-                    {(newUser.subscriptionType || 'months') !== 'lifetime' && (
+
+                    <div className="grid-2" style={{ gap: '12px', marginBottom: '12px' }}>
                       <div className="field">
-                        <label className="field-label">{t('common.duration')}</label>
-                        <input
+                        <label className="field-label">{t('common.subType')}</label>
+                        <select
                           className="form-control"
-                          type="number"
-                          min="1"
-                          required
-                          value={newUser.subscriptionDuration || '1'}
-                          onChange={e => setNewUser({ ...newUser, subscriptionDuration: e.target.value })}
-                          placeholder={t('common.duration')}
-                        />
+                          value={newUser.subscriptionType || 'months'}
+                          onChange={e => setNewUser({ ...newUser, subscriptionType: e.target.value, subscriptionDuration: e.target.value === 'lifetime' ? '' : '1' })}
+                        >
+                          <option value="days">{t('common.daysOpt')}</option>
+                          <option value="months">{t('common.monthsOpt')}</option>
+                          <option value="lifetime">{t('common.lifetimeOpt')}</option>
+                        </select>
                       </div>
-                    )}
-                  </div>
+                      {(newUser.subscriptionType || 'months') !== 'lifetime' && (
+                        <div className="field">
+                          <label className="field-label">{t('common.duration')}</label>
+                          <input
+                            className="form-control"
+                            type="number"
+                            min="1"
+                            required
+                            value={newUser.subscriptionDuration || '1'}
+                            onChange={e => setNewUser({ ...newUser, subscriptionDuration: e.target.value })}
+                            placeholder={t('common.duration')}
+                          />
+                        </div>
+                      )}
+                    </div>
+                  </>
                 )}
 
-                {activeTab === 'users_clients' && (
-                  <div className="field">
-                    <label className="field-label">{t('common.licenseKey')}</label>
-                    <div style={{ display: 'flex', gap: '8px' }}>
-                      <input className="form-control" type="text" required readOnly value={newUser.licenseKey} placeholder="GS-XXXX-XXXX-XXXX" style={{ background: 'rgba(255,255,255,0.03)', cursor: 'default' }} />
-                      <button type="button" onClick={() => generateLicenseKey()} className="btn btn-sm" style={{ whiteSpace: 'nowrap' }}>
-                        <Zap size={14} /> {t('common.generateCode')}
-                      </button>
-                    </div>
-                  </div>
-                )}
+
               </div>
               <div className="modal-footer">
                 <button type="button" onClick={() => { setShowAddModal(false); setError(null); }} className="btn" style={{ flex: 1 }}>{t('common.cancel')}</button>
@@ -928,6 +1013,22 @@ const SuperAdminDashboard = () => {
                         </div>
                       </div>
                     </div>
+                    <div className="field" style={{ marginBottom: '12px' }}>
+                      <label className="field-label" style={{ fontWeight: 'bold', color: 'var(--accent)' }}>
+                        {language === 'ar' ? 'خطة الاشتراك / الباقة (Subscription Plan)' : 'Subscription Plan'}
+                      </label>
+                      <select
+                        className="form-control"
+                        style={{ borderColor: 'var(--accent)', background: 'rgba(99,102,241,0.08)', fontWeight: 'bold' }}
+                        value={editingUser.subscriptionTier || 'silver'}
+                        onChange={e => setEditingUser({ ...editingUser, subscriptionTier: e.target.value })}
+                      >
+                        <option value="bronze">{language === 'ar' ? '🥉 الباقة الأولى (Bronze Plan)' : '🥉 Plan 1 (Bronze)'}</option>
+                        <option value="silver">{language === 'ar' ? '🥈 الباقة الثانية (Silver Plan - Pro)' : '🥈 Plan 2 (Silver)'}</option>
+                        <option value="gold">{language === 'ar' ? '🥇 الباقة الذهبية (Gold Plan - VIP)' : '🥇 Plan 3 (Gold / VIP)'}</option>
+                      </select>
+                    </div>
+
                     <div className="grid-2" style={{ gap: '12px', marginBottom: '12px' }}>
                       <div className="field">
                         <label className="field-label">{t('common.subType')}</label>
@@ -957,19 +1058,6 @@ const SuperAdminDashboard = () => {
                       )}
                     </div>
 
-                    <div className="field">
-                      <label className="field-label">{t('common.licenseKey')}</label>
-                      <div style={{ display: 'flex', gap: '8px' }}>
-                        <input className="form-control" type="text" readOnly value={editingUser.licenseKey || ''} placeholder="GS-XXXX-XXXX-XXXX" style={{ background: 'rgba(255,255,255,0.03)', cursor: 'default' }} />
-                        <button type="button" onClick={() => {
-                          const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
-                          const segment = () => Array.from({ length: 4 }, () => chars[Math.floor(Math.random() * chars.length)]).join('');
-                          setEditingUser(prev => ({ ...prev, licenseKey: `GS-${segment()}-${segment()}-${segment()}` }));
-                        }} className="btn btn-sm" style={{ whiteSpace: 'nowrap' }}>
-                          <Zap size={14} /> {t('common.updateCode')}
-                        </button>
-                      </div>
-                    </div>
                   </>
                 )}
               </div>

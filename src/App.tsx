@@ -77,7 +77,16 @@ export default function App() {
     <LanguageProvider>
       <AuthProvider>
         <BrowserRouter>
-          <React.Suspense fallback={<div className="min-h-screen bg-bg-dark flex items-center justify-center text-white">Loading HumanOS...</div>}>
+          <React.Suspense fallback={
+            <div className="min-h-screen bg-slate-950 flex flex-col items-center justify-center p-6 text-center select-none">
+              <div className="w-16 h-16 rounded-2xl bg-gradient-to-tr from-brand-primary via-indigo-500 to-cyan-400 p-0.5 shadow-2xl animate-pulse mb-4">
+                <div className="w-full h-full bg-slate-950 rounded-[14px] flex items-center justify-center text-white font-black text-2xl">
+                  H
+                </div>
+              </div>
+              <h2 className="text-xl font-black text-white tracking-tight">Loading HumanOS...</h2>
+            </div>
+          }>
             <Routes>
             <Route path="/" element={<LandingPage />} />
             <Route path="/auth" element={<Auth />} />

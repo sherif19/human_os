@@ -106,6 +106,11 @@ const AdminDashboard = () => {
   const [allPayments, setAllPayments] = useState([]);
   const [appointments, setAppointments] = useState([]);
   const [appointmentsLoading, setAppointmentsLoading] = useState(true);
+  const [approvingAppt, setApprovingAppt] = useState(null);
+  const [meetingLinkInput, setMeetingLinkInput] = useState('');
+  const [meetingNotesInput, setMeetingNotesInput] = useState('');
+  const [activeChatAppt, setActiveChatAppt] = useState(null);
+  const [chatInput, setChatInput] = useState('');
   const [paymentSearchTerm, setPaymentSearchTerm] = useState('');
   const [paymentStatusFilter, setPaymentStatusFilter] = useState('all');
   const [selectedReceiptUrl, setSelectedReceiptUrl] = useState('');
@@ -119,6 +124,7 @@ const AdminDashboard = () => {
     licenseKey: '',
     country: 'EG',
     role: 'user',
+    subscriptionTier: 'silver',
     subscriptionType: 'months',
     subscriptionDuration: '1'
   });
@@ -478,20 +484,53 @@ const AdminDashboard = () => {
         adminId: currentUser.uid,
         adminEmail: currentUser.email,
         adminName: currentUser.email.split('@')[0],
+        subscriptionTier: newUser.subscriptionTier || 'silver',
         subscriptionType: newUser.subscriptionType,
         subscriptionDuration: newUser.subscriptionType === 'lifetime' ? null : newUser.subscriptionDuration,
         expiresAt: expiresAt,
+        isTrial: false,
         createdAt: serverTimestamp()
       });
 
       await signOut(secondaryAuth);
       setShowAddModal(false);
-      setNewUser({ name: '', email: '', password: '', phoneNumber: '', licenseKey: '', role: 'user', subscriptionType: 'months', subscriptionDuration: '1' });
+      setNewUser({ name: '', email: '', password: '', phoneNumber: '', licenseKey: '', role: 'user', subscriptionTier: 'silver', subscriptionType: 'months', subscriptionDuration: '1' });
       fetchUsers();
     } catch (err) {
       setError(err.message);
     } finally {
       setIsCreating(false);
+    }
+  };
+
+  const handleQuickChangePlan = async (userId, newTier) => {
+    try {
+      await setDoc(doc(db, 'users', userId), {
+        subscriptionTier: newTier,
+        isTrial: false
+      }, { merge: true });
+      fetchUsers();
+    } catch (err) {
+      console.error("Error updating plan:", err);
+      setError(err.message);
+    }
+  };
+
+  const handleQuickExtendSubscription = async (user, extraDays = 30) => {
+    try {
+      let currentExp = user.expiresAt ? (user.expiresAt.toDate ? user.expiresAt.toDate() : (user.expiresAt.seconds ? new Date(user.expiresAt.seconds * 1000) : new Date(user.expiresAt))) : new Date();
+      if (currentExp < new Date()) currentExp = new Date();
+      const newExp = new Date(currentExp);
+      newExp.setDate(newExp.getDate() + extraDays);
+
+      await setDoc(doc(db, 'users', user.id), {
+        expiresAt: newExp,
+        isTrial: false
+      }, { merge: true });
+      fetchUsers();
+    } catch (err) {
+      console.error("Error extending subscription:", err);
+      setError(err.message);
     }
   };
 
@@ -540,6 +579,7 @@ const AdminDashboard = () => {
         phoneNumber: `${countryData[editingUser.country || 'EG'].code}${editingUser.phoneNumber}`,
         licenseKey: editingUser.licenseKey,
         country: editingUser.country || 'EG',
+        subscriptionTier: editingUser.subscriptionTier || 'silver',
         subscriptionType: editingUser.subscriptionType,
         subscriptionDuration: editingUser.subscriptionType === 'lifetime' ? null : editingUser.subscriptionDuration,
         expiresAt: expiresAt,
@@ -627,8 +667,25 @@ const AdminDashboard = () => {
     }
   };
 
-  const handleApproveAppointment = async (apptId) => {
+  const handleApproveAppointmentClick = (appt) => {
+    setApprovingAppt(appt);
+    setMeetingLinkInput(appt.meetingLink || '');
+    setMeetingNotesInput(appt.meetingNotes || '');
+  };
+
+  const [approvalSuccessModal, setApprovalSuccessModal] = useState(null);
+
+  const handleConfirmApproveAppointment = async (e) => {
+    if (e) e.preventDefault();
+    if (!approvingAppt) return;
     try {
+      const apptId = approvingAppt.id;
+      const link = meetingLinkInput.trim();
+      const notes = meetingNotesInput.trim();
+      const clientName = approvingAppt.userName;
+      const date = approvingAppt.date;
+      const timeSlot = approvingAppt.timeSlot;
+
       if (currentUser?.uid.startsWith('demo-')) {
         const stored = localStorage.getItem('humanos_demo_appointments');
         if (stored) {
@@ -636,6 +693,8 @@ const AdminDashboard = () => {
           const idx = parsed.findIndex(b => b.id === apptId);
           if (idx !== -1) {
             parsed[idx].status = 'approved';
+            parsed[idx].meetingLink = link;
+            parsed[idx].meetingNotes = notes;
             localStorage.setItem('humanos_demo_appointments', JSON.stringify(parsed));
             window.dispatchEvent(new Event('storage'));
             
@@ -646,13 +705,105 @@ const AdminDashboard = () => {
         }
       } else {
         await setDoc(doc(db, 'appointments', apptId), {
-          status: 'approved'
+          status: 'approved',
+          meetingLink: link,
+          meetingNotes: notes
         }, { merge: true });
       }
-      alert(isRTL ? "تم قبول الموعد بنجاح" : "Appointment approved successfully!");
+      
+      setApprovingAppt(null);
+      setMeetingLinkInput('');
+      setMeetingNotesInput('');
+
+      // Trigger Modern Success Modal
+      setApprovalSuccessModal({
+        clientName,
+        date,
+        timeSlot,
+        meetingLink: link
+      });
     } catch (err) {
       console.error("Failed to approve appointment:", err);
       setError(err.message);
+    }
+  };
+
+  const handleSaveMeetingLink = async (apptId, link) => {
+    try {
+      if (currentUser?.uid.startsWith('demo-')) {
+        const stored = localStorage.getItem('humanos_demo_appointments');
+        if (stored) {
+          const parsed = JSON.parse(stored);
+          const idx = parsed.findIndex(b => b.id === apptId);
+          if (idx !== -1) {
+            parsed[idx].meetingLink = link;
+            localStorage.setItem('humanos_demo_appointments', JSON.stringify(parsed));
+            window.dispatchEvent(new Event('storage'));
+            
+            const adminAppts = parsed.filter(b => b.adminId === currentUser.uid || b.adminId === 'demo-admin');
+            adminAppts.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+            setAppointments(adminAppts);
+          }
+        }
+      } else {
+        await setDoc(doc(db, 'appointments', apptId), {
+          meetingLink: link
+        }, { merge: true });
+      }
+    } catch (err) {
+      console.error("Failed to save meeting link:", err);
+    }
+  };
+
+  const handleSendAppointmentMessage = async (apptId, text) => {
+    if (!text.trim()) return;
+    const newMessage = {
+      id: `msg-${Date.now()}`,
+      senderId: currentUser?.uid || 'admin',
+      senderName: currentUser?.name || (isRTL ? 'المدرب' : 'Coach'),
+      role: 'admin',
+      text: text.trim(),
+      timestamp: new Date().toISOString()
+    };
+
+    try {
+      if (currentUser?.uid.startsWith('demo-')) {
+        const stored = localStorage.getItem('humanos_demo_appointments');
+        if (stored) {
+          const parsed = JSON.parse(stored);
+          const idx = parsed.findIndex(b => b.id === apptId);
+          if (idx !== -1) {
+            const existingMsgs = parsed[idx].messages || [];
+            parsed[idx].messages = [...existingMsgs, newMessage];
+            localStorage.setItem('humanos_demo_appointments', JSON.stringify(parsed));
+            window.dispatchEvent(new Event('storage'));
+
+            const adminAppts = parsed.filter(b => b.adminId === currentUser.uid || b.adminId === 'demo-admin');
+            adminAppts.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+            setAppointments(adminAppts);
+            if (activeChatAppt && activeChatAppt.id === apptId) {
+              setActiveChatAppt(parsed[idx]);
+            }
+          }
+        }
+      } else {
+        const targetAppt = appointments.find(a => a.id === apptId);
+        const existingMsgs = targetAppt?.messages || [];
+        const updatedMsgs = [...existingMsgs, newMessage];
+        await setDoc(doc(db, 'appointments', apptId), {
+          messages: updatedMsgs
+        }, { merge: true });
+
+        if (activeChatAppt && activeChatAppt.id === apptId) {
+          setActiveChatAppt({
+            ...activeChatAppt,
+            messages: updatedMsgs
+          });
+        }
+      }
+      setChatInput('');
+    } catch (err) {
+      console.error("Error sending appointment message:", err);
     }
   };
 
@@ -1325,7 +1476,17 @@ const AdminDashboard = () => {
                         </div>
                       </td>
                       <td style={{ padding: '12px 20px', fontSize: '12px', color: 'var(--text2)', maxWidth: '250px', whiteSpace: 'normal', wordBreak: 'break-word' }}>
-                        {appt.note || '—'}
+                        <div>{appt.note || '—'}</div>
+                        {appt.meetingLink && (
+                          <a 
+                            href={appt.meetingLink} 
+                            target="_blank" 
+                            rel="noreferrer"
+                            style={{ display: 'inline-flex', alignItems: 'center', gap: '4px', fontSize: '10px', color: 'var(--brand)', marginTop: '6px', fontWeight: '700', textDecoration: 'underline' }}
+                          >
+                            🔗 {isRTL ? 'رابط الاجتماع المباشر' : 'Live Meeting Link'}
+                          </a>
+                        )}
                       </td>
                       <td style={{ padding: '12px 20px', textAlign: 'center' }}>
                         <span style={{
@@ -1346,11 +1507,11 @@ const AdminDashboard = () => {
                           <div style={{ display: 'flex', gap: '6px', justifyContent: 'center', alignItems: 'center' }}>
                             <button
                               type="button"
-                              onClick={() => handleApproveAppointment(appt.id)}
+                              onClick={() => handleApproveAppointmentClick(appt)}
                               className="btn btn-primary btn-sm"
                               style={{ background: 'var(--green)', color: 'white', border: 'none', fontSize: '11px', padding: '4px 8px' }}
                             >
-                              {isRTL ? 'موافقة' : 'Approve'}
+                              {isRTL ? 'قبول ورابط الميتنج' : 'Approve & Add Link'}
                             </button>
                             <button
                               type="button"
@@ -1361,9 +1522,29 @@ const AdminDashboard = () => {
                               {isRTL ? 'رفض' : 'Reject'}
                             </button>
                           </div>
+                        ) : appt.status === 'approved' ? (
+                          <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', alignItems: 'center' }}>
+                            <button
+                              type="button"
+                              onClick={() => setActiveChatAppt(appt)}
+                              className="btn btn-sm"
+                              style={{ background: 'rgba(99, 102, 241, 0.15)', color: '#818cf8', border: '1px solid rgba(99, 102, 241, 0.3)', fontSize: '10px', padding: '3px 8px', borderRadius: '8px', fontWeight: '700' }}
+                            >
+                              💬 {isRTL ? 'محادثة العميل' : 'Chat with Client'}
+                              {appt.messages?.length > 0 && ` (${appt.messages.length})`}
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => handleApproveAppointmentClick(appt)}
+                              className="btn btn-sm"
+                              style={{ background: 'rgba(255, 255, 255, 0.05)', color: 'var(--text2)', border: '1px solid var(--line)', fontSize: '10px', padding: '2px 6px', borderRadius: '6px' }}
+                            >
+                              ⚙️ {isRTL ? 'تعديل الرابط' : 'Edit Link'}
+                            </button>
+                          </div>
                         ) : (
                           <span style={{ fontSize: '11px', color: 'var(--text3)' }}>
-                            {appt.status === 'approved' ? (isRTL ? 'تم القبول' : 'Approved') : (isRTL ? 'تم الرفض' : 'Rejected')}
+                            {isRTL ? 'تم الرفض' : 'Rejected'}
                           </span>
                         )}
                       </td>
@@ -1452,6 +1633,47 @@ const AdminDashboard = () => {
                             </div>
                           </div>
                         )}
+
+                        {/* Interactive Subscription Plan & Extension Actions */}
+                        <div style={{ marginTop: '8px', display: 'flex', alignItems: 'center', gap: '6px', flexWrap: 'wrap' }}>
+                          <select
+                            value={user.subscriptionTier || 'silver'}
+                            onChange={(e) => handleQuickChangePlan(user.id, e.target.value)}
+                            style={{
+                              background: user.subscriptionTier === 'gold' ? 'rgba(245, 158, 11, 0.15)' : user.subscriptionTier === 'bronze' ? 'rgba(148, 163, 184, 0.15)' : 'rgba(99, 102, 241, 0.15)',
+                              color: user.subscriptionTier === 'gold' ? '#f59e0b' : user.subscriptionTier === 'bronze' ? '#cbd5e1' : 'var(--accent)',
+                              border: `1px solid ${user.subscriptionTier === 'gold' ? 'rgba(245, 158, 11, 0.3)' : user.subscriptionTier === 'bronze' ? 'rgba(148, 163, 184, 0.3)' : 'rgba(99, 102, 241, 0.3)'}`,
+                              borderRadius: '6px',
+                              padding: '2px 6px',
+                              fontSize: '11px',
+                              fontWeight: 'bold',
+                              cursor: 'pointer'
+                            }}
+                          >
+                            <option value="bronze">{isRTL ? '🥉 الباقة الأولى (Bronze)' : '🥉 Plan 1 (Bronze)'}</option>
+                            <option value="silver">{isRTL ? '🥈 الباقة الثانية (Silver - Plan 2)' : '🥈 Plan 2 (Silver)'}</option>
+                            <option value="gold">{isRTL ? '🥇 الباقة الذهبية (Gold VIP)' : '🥇 Plan 3 (Gold VIP)'}</option>
+                          </select>
+
+                          <button
+                            type="button"
+                            onClick={() => handleQuickExtendSubscription(user, 30)}
+                            className="btn btn-xs"
+                            style={{
+                              background: 'rgba(16, 185, 129, 0.15)',
+                              color: 'var(--green)',
+                              border: '1px solid rgba(16, 185, 129, 0.3)',
+                              borderRadius: '6px',
+                              padding: '2px 6px',
+                              fontSize: '10px',
+                              fontWeight: 'bold',
+                              cursor: 'pointer'
+                            }}
+                            title={isRTL ? 'تمديد الاشتراك لمدة 30 يوم' : 'Extend 30 Days'}
+                          >
+                            +30 {isRTL ? 'يوم' : 'Days'}
+                          </button>
+                        </div>
                       </td>
                       <td style={{ padding: '16px 20px', color: 'var(--text2)', fontSize: '13px' }}>
                         {user.phoneNumber || '—'}
@@ -1581,6 +1803,22 @@ const AdminDashboard = () => {
                     </div>
                   </div>
 
+                  <div className="field" style={{ marginBottom: '12px' }}>
+                    <label className="field-label" style={{ fontWeight: 'bold', color: 'var(--accent)' }}>
+                      {isRTL ? 'خطة الاشتراك / الباقة (Subscription Plan)' : 'Subscription Plan'}
+                    </label>
+                    <select
+                      className="form-control"
+                      style={{ borderColor: 'var(--accent)', background: 'rgba(99,102,241,0.08)', fontWeight: 'bold' }}
+                      value={editingUser.subscriptionTier || 'silver'}
+                      onChange={e => setEditingUser({ ...editingUser, subscriptionTier: e.target.value })}
+                    >
+                      <option value="bronze">{isRTL ? '🥉 الباقة الأولى (Bronze Plan)' : '🥉 Plan 1 (Bronze)'}</option>
+                      <option value="silver">{isRTL ? '🥈 الباقة الثانية (Silver Plan - Pro)' : '🥈 Plan 2 (Silver)'}</option>
+                      <option value="gold">{isRTL ? '🥇 الباقة الذهبية (Gold Plan - VIP)' : '🥇 Plan 3 (Gold / VIP)'}</option>
+                    </select>
+                  </div>
+
                   <div className="grid-2" style={{ gap: '12px', marginBottom: '12px' }}>
                     <div className="field">
                       <label className="field-label">{t('common.subType')}</label>
@@ -1610,33 +1848,6 @@ const AdminDashboard = () => {
                     )}
                   </div>
 
-                  <div className="field" style={{ marginBottom: '20px' }}>
-                    <label className="field-label">{t('common.licenseKey')}</label>
-                    <div style={{ display: 'flex', gap: '8px' }}>
-                      <input
-                        className="form-control"
-                        type="text"
-                        required
-                        readOnly
-                        value={editingUser.licenseKey}
-                        placeholder="GS-XXXX-XXXX-XXXX"
-                        style={{ background: 'rgba(255,255,255,0.03)', cursor: 'default' }}
-                      />
-                      <button
-                        type="button"
-                        onClick={() => {
-                          const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
-                          const segment = () => Array.from({ length: 4 }, () => chars[Math.floor(Math.random() * chars.length)]).join('');
-                          const key = `GS-${segment()}-${segment()}-${segment()}`;
-                          setEditingUser(prev => ({ ...prev, licenseKey: key }));
-                        }}
-                        className="btn btn-sm"
-                        style={{ whiteSpace: 'nowrap' }}
-                      >
-                        <Zap size={14} /> {t('common.updateCode')}
-                      </button>
-                    </div>
-                  </div>
                 </>
               )}
 
@@ -1965,6 +2176,22 @@ const AdminDashboard = () => {
                 <input className="form-control" type="password" required value={newUser.password} onChange={e => setNewUser({ ...newUser, password: e.target.value })} placeholder="••••••••" />
               </div>
 
+              <div className="field" style={{ marginBottom: '12px' }}>
+                <label className="field-label" style={{ fontWeight: 'bold', color: 'var(--accent)' }}>
+                  {isRTL ? 'خطة الاشتراك / الباقة (Subscription Plan)' : 'Subscription Plan'}
+                </label>
+                <select
+                  className="form-control"
+                  style={{ borderColor: 'var(--accent)', background: 'rgba(99,102,241,0.08)', fontWeight: 'bold' }}
+                  value={newUser.subscriptionTier || 'silver'}
+                  onChange={e => setNewUser({ ...newUser, subscriptionTier: e.target.value })}
+                >
+                  <option value="bronze">{isRTL ? '🥉 الباقة الأولى (Bronze Plan)' : '🥉 Plan 1 (Bronze)'}</option>
+                  <option value="silver">{isRTL ? '🥈 الباقة الثانية (Silver Plan - Pro)' : '🥈 Plan 2 (Silver)'}</option>
+                  <option value="gold">{isRTL ? '🥇 الباقة الذهبية (Gold Plan - VIP)' : '🥇 Plan 3 (Gold / VIP)'}</option>
+                </select>
+              </div>
+
               <div className="grid-2" style={{ gap: '12px', marginBottom: '12px' }}>
                 <div className="field">
                   <label className="field-label">{t('common.subType')}</label>
@@ -1994,23 +2221,7 @@ const AdminDashboard = () => {
                 )}
               </div>
 
-              <div className="field" style={{ marginBottom: '20px' }}>
-                <label className="field-label">{t('common.licenseKey')}</label>
-                <div style={{ display: 'flex', gap: '8px' }}>
-                  <input
-                    className="form-control"
-                    type="text"
-                    required
-                    readOnly
-                    value={newUser.licenseKey}
-                    placeholder="GS-XXXX-XXXX-XXXX"
-                    style={{ background: 'rgba(255,255,255,0.03)', cursor: 'default' }}
-                  />
-                  <button type="button" onClick={generateLicenseKey} className="btn btn-sm" style={{ whiteSpace: 'nowrap' }}>
-                    <Zap size={14} /> {t('common.generateCode')}
-                  </button>
-                </div>
-              </div>
+
 
               <div style={{ display: 'flex', gap: '10px' }}>
                 <button type="button" onClick={() => { setShowAddModal(false); setError(null); }} className="btn" style={{ flex: 1 }}>{t('common.cancel')}</button>
@@ -2164,6 +2375,217 @@ const AdminDashboard = () => {
               className="btn btn-full"
             >
               {isRTL ? 'إغلاق المعاينة' : 'Close Preview'}
+            </button>
+          </div>
+        </div>
+      )}
+      {/* Approval Modal with Meeting Link Input */}
+      {approvingAppt && (
+        <div className="modal-backdrop" style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.85)', backdropFilter: 'blur(10px)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 9999, padding: '16px' }}>
+          <div className="glass-card" style={{ maxWidth: '480px', width: '94%', padding: '28px', borderRadius: '28px', background: '#0f172a', border: '1px solid rgba(99, 102, 241, 0.4)', boxShadow: '0 20px 60px rgba(0,0,0,0.8)' }}>
+            <h3 style={{ fontSize: '18px', fontWeight: '800', color: 'white', marginBottom: '8px' }}>
+              {isRTL ? 'تأكيد الموعد وإضافة رابط الاجتماع' : 'Approve Appointment & Add Link'}
+            </h3>
+            <p style={{ fontSize: '12px', color: '#94a3b8', marginBottom: '18px' }}>
+              {isRTL ? `الموعد الخاص بالعميل (${approvingAppt.userName}) بتاريخ ${approvingAppt.date} (${approvingAppt.timeSlot})` : `Appointment for (${approvingAppt.userName}) on ${approvingAppt.date} (${approvingAppt.timeSlot})`}
+            </p>
+
+            <form onSubmit={handleConfirmApproveAppointment} style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
+              <div>
+                <label style={{ fontSize: '11px', fontWeight: '700', color: '#cbd5e1', display: 'block', marginBottom: '6px' }}>
+                  {isRTL ? 'رابط الاجتماع المباشر (Google Meet / Zoom)' : 'Live Meeting Link (Google Meet / Zoom)'}
+                </label>
+                <input
+                  type="url"
+                  placeholder="https://meet.google.com/abc-defg-hij"
+                  value={meetingLinkInput}
+                  onChange={(e) => setMeetingLinkInput(e.target.value)}
+                  className="form-control"
+                  style={{ width: '100%', fontSize: '12px', padding: '12px 14px', borderRadius: '12px', background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.12)', color: 'white' }}
+                />
+              </div>
+
+              <div>
+                <label style={{ fontSize: '11px', fontWeight: '700', color: '#cbd5e1', display: 'block', marginBottom: '6px' }}>
+                  {isRTL ? 'ملاحظات أو تعليمات خاصة للجلسة' : 'Special Session Notes / Instructions'}
+                </label>
+                <textarea
+                  placeholder={isRTL ? 'مثال: يرجى تحضير نتائج التقييم الأخير قبل الجلسة...' : 'e.g., Please prepare your latest assessment before the call...'}
+                  value={meetingNotesInput}
+                  onChange={(e) => setMeetingNotesInput(e.target.value)}
+                  className="form-control"
+                  rows="3"
+                  style={{ width: '100%', fontSize: '12px', padding: '12px 14px', borderRadius: '12px', background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.12)', color: 'white', resize: 'none' }}
+                />
+              </div>
+
+              <div style={{ display: 'flex', gap: '10px', marginTop: '10px' }}>
+                <button
+                  type="button"
+                  onClick={() => setApprovingAppt(null)}
+                  className="btn"
+                  style={{ flex: 1, padding: '12px', fontSize: '12px', borderRadius: '12px', background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.1)', color: '#94a3b8' }}
+                >
+                  {isRTL ? 'إلغاء' : 'Cancel'}
+                </button>
+                <button
+                  type="submit"
+                  className="btn btn-primary"
+                  style={{ flex: 1, padding: '12px', fontSize: '12px', fontWeight: '800', borderRadius: '12px', background: 'linear-gradient(135deg, #10b981, #059669)', border: 'none', color: 'white', boxShadow: '0 4px 15px rgba(16, 185, 129, 0.3)' }}
+                >
+                  {isRTL ? 'تأكيد القبول والمزامنة' : 'Confirm Approval & Sync'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* Coach-Client Live Chat Modal */}
+      {activeChatAppt && (
+        <div className="modal-backdrop" style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.85)', backdropFilter: 'blur(12px)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 9999, padding: '16px' }}>
+          <div className="glass-card" style={{ maxWidth: '580px', width: '94%', padding: '24px', borderRadius: '28px', background: '#0f172a', border: '1px solid rgba(99, 102, 241, 0.4)', boxShadow: '0 25px 60px rgba(0,0,0,0.9)', height: '80vh', maxHeight: '620px', display: 'flex', flexDirection: 'column', position: 'relative' }}>
+            {/* Header */}
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', paddingBottom: '16px', borderBottom: '1px solid rgba(255,255,255,0.1)', marginBottom: '14px', direction: isRTL ? 'rtl' : 'ltr' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                <div style={{ width: '44px', height: '44px', borderRadius: '14px', background: 'linear-gradient(135deg, #6366f1, #4f46e5)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'white', fontWeight: '800', fontSize: '18px', boxShadow: '0 4px 14px rgba(99, 102, 241, 0.3)' }}>
+                  {activeChatAppt.userName ? activeChatAppt.userName.charAt(0).toUpperCase() : 'U'}
+                </div>
+                <div>
+                  <h3 style={{ fontSize: '16px', fontWeight: '800', margin: 0, color: 'white' }}>
+                    {activeChatAppt.userName}
+                  </h3>
+                  <p style={{ fontSize: '11px', color: '#94a3b8', margin: '2px 0 0 0', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                    <span>📅 {activeChatAppt.date}</span>
+                    <span>🕒 {activeChatAppt.timeSlot}</span>
+                  </p>
+                </div>
+              </div>
+              <button 
+                onClick={() => setActiveChatAppt(null)}
+                style={{ background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.1)', color: '#94a3b8', width: '34px', height: '34px', borderRadius: '10px', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '18px', cursor: 'pointer', transition: 'all 0.2s' }}
+              >
+                ✕
+              </button>
+            </div>
+
+            {/* Meeting Link Bar inside Chat */}
+            {activeChatAppt.meetingLink && (
+              <div style={{ background: 'rgba(16, 185, 129, 0.1)', border: '1px solid rgba(16, 185, 129, 0.2)', padding: '10px 14px', borderRadius: '14px', marginBottom: '14px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '11px', direction: isRTL ? 'rtl' : 'ltr' }}>
+                <span style={{ color: '#34d399', fontWeight: '700' }}>🔗 {isRTL ? 'رابط الاجتماع المفعل' : 'Active Meeting Link'}:</span>
+                <a href={activeChatAppt.meetingLink} target="_blank" rel="noreferrer" style={{ color: '#38bdf8', fontWeight: '800', textDecoration: 'underline' }}>
+                  {isRTL ? 'فتح الاجتماع ←' : 'Open Link →'}
+                </a>
+              </div>
+            )}
+
+            {/* Messages Feed */}
+            <div style={{ flex: 1, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: '12px', paddingRight: '6px', direction: isRTL ? 'rtl' : 'ltr' }}>
+              {(!activeChatAppt.messages || activeChatAppt.messages.length === 0) ? (
+                <div style={{ margin: 'auto', textAlign: 'center', color: '#64748b', fontSize: '13px', padding: '20px' }}>
+                  <div style={{ fontSize: '32px', marginBottom: '8px' }}>💬</div>
+                  {isRTL ? 'لا توجد رسائل سابقة. ابدأ المحادثة المباشرة مع العميل الآن!' : 'No messages yet. Start the direct session chat now!'}
+                </div>
+              ) : (
+                activeChatAppt.messages.map((msg) => {
+                  const isAdmin = msg.role === 'admin';
+                  const bubbleAlign = isRTL ? (isAdmin ? 'flex-start' : 'flex-end') : (isAdmin ? 'flex-end' : 'flex-start');
+                  return (
+                    <div 
+                      key={msg.id || Math.random()} 
+                      style={{
+                        alignSelf: bubbleAlign,
+                        maxWidth: '82%',
+                        background: isAdmin ? 'linear-gradient(135deg, #6366f1, #4f46e5)' : 'rgba(255,255,255,0.08)',
+                        border: isAdmin ? '1px solid rgba(99, 102, 241, 0.4)' : '1px solid rgba(255,255,255,0.12)',
+                        color: 'white',
+                        padding: '12px 16px',
+                        borderRadius: '20px',
+                        borderBottomRightRadius: isAdmin ? '2px' : '20px',
+                        borderBottomLeftRadius: isAdmin ? '20px' : '2px',
+                        fontSize: '13px',
+                        lineHeight: '1.5',
+                        boxShadow: isAdmin ? '0 4px 15px rgba(99, 102, 241, 0.25)' : 'none'
+                      }}
+                    >
+                      <div style={{ fontSize: '10px', fontWeight: '800', color: isAdmin ? '#c7d2fe' : '#94a3b8', marginBottom: '4px', display: 'flex', justifyContent: 'space-between', gap: '12px' }}>
+                        <span>{msg.senderName} ({isAdmin ? (isRTL ? 'أنت (المدرب)' : 'You (Coach)') : (isRTL ? 'العميل' : 'Client')})</span>
+                      </div>
+                      <div>{msg.text}</div>
+                    </div>
+                  );
+                })
+              )}
+            </div>
+
+            {/* Chat Input Bar */}
+            <form 
+              onSubmit={(e) => {
+                e.preventDefault();
+                handleSendAppointmentMessage(activeChatAppt.id, chatInput);
+              }}
+              style={{ display: 'flex', gap: '10px', marginTop: '14px', paddingTop: '14px', borderTop: '1px solid rgba(255,255,255,0.1)', direction: isRTL ? 'rtl' : 'ltr' }}
+            >
+              <input
+                type="text"
+                placeholder={isRTL ? 'اكتب رسالتك المباشرة للعميل...' : 'Type a message to client...'}
+                value={chatInput}
+                onChange={(e) => setChatInput(e.target.value)}
+                className="form-control"
+                style={{ flex: 1, fontSize: '13px', padding: '12px 16px', borderRadius: '14px', background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.12)', color: 'white' }}
+              />
+              <button
+                type="submit"
+                className="btn btn-primary"
+                style={{ padding: '12px 22px', fontSize: '13px', fontWeight: '800', borderRadius: '14px', background: 'linear-gradient(135deg, #6366f1, #4f46e5)', border: 'none', color: 'white', boxShadow: '0 4px 15px rgba(99, 102, 241, 0.3)', cursor: 'pointer' }}
+              >
+                {isRTL ? 'إرسال ✈' : 'Send ✈'}
+              </button>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* Approval Success Modal */}
+      {approvalSuccessModal && (
+        <div className="modal-backdrop" style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.85)', backdropFilter: 'blur(12px)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 9999, padding: '16px' }}>
+          <div className="glass-card" style={{ maxWidth: '440px', width: '94%', padding: '28px', borderRadius: '28px', background: 'rgba(15, 23, 42, 0.95)', border: '1px solid rgba(16, 185, 129, 0.4)', boxShadow: '0 0 50px rgba(16, 185, 129, 0.2)', textAlign: 'center', position: 'relative' }}>
+            <button 
+              onClick={() => setApprovalSuccessModal(null)}
+              style={{ position: 'absolute', top: '16px', right: '16px', background: 'transparent', border: 'none', color: '#94a3b8', fontSize: '18px', cursor: 'pointer' }}
+            >
+              ✕
+            </button>
+
+            <div style={{ width: '64px', height: '64px', borderRadius: '22px', background: 'linear-gradient(135deg, #10b981, #059669)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'white', fontSize: '32px', margin: '0 auto 16px', boxShadow: '0 10px 25px rgba(16, 185, 129, 0.4)' }}>
+              ✓
+            </div>
+
+            <span style={{ fontSize: '10px', fontWeight: '800', textTransform: 'uppercase', letterSpacing: '0.15em', background: 'rgba(16, 185, 129, 0.15)', color: '#34d399', padding: '4px 12px', borderRadius: '20px', border: '1px solid rgba(16, 185, 129, 0.3)', display: 'inline-block', marginBottom: '10px' }}>
+              {isRTL ? 'متاحة وجاهزة للانضمام' : 'APPOINTMENT ACTIVE'}
+            </span>
+
+            <h3 style={{ fontSize: '20px', fontWeight: '900', color: 'white', margin: '0 0 6px 0' }}>
+              {isRTL ? 'تم قبول الموعد بنجاح!' : 'Appointment Approved!'}
+            </h3>
+
+            <p style={{ fontSize: '12px', color: '#94a3b8', margin: '0 0 20px 0', lineHeight: '1.5' }}>
+              {isRTL ? `تمت مزامنة الجلسة الخاصة بالعميل (${approvalSuccessModal.clientName}) وتوفير الشات المباشر ورابط الاجتماع.` : `Session with client (${approvalSuccessModal.clientName}) is now approved with live link and chat.`}
+            </p>
+
+            <div style={{ background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.08)', borderRadius: '16px', padding: '14px 16px', marginBottom: '20px', textAlign: 'start', fontSize: '11px', color: '#cbd5e1', display: 'flex', flexDirection: 'column', gap: '6px', direction: isRTL ? 'rtl' : 'ltr' }}>
+              <div>📅 <strong style={{ color: 'white' }}>{isRTL ? 'التاريخ والتوقيت:' : 'Date & Slot:'}</strong> {approvalSuccessModal.date} ({approvalSuccessModal.timeSlot})</div>
+              {approvalSuccessModal.meetingLink && (
+                <div style={{ wordBreak: 'break-all' }}>🔗 <strong style={{ color: 'white' }}>{isRTL ? 'رابط الاجتماع:' : 'Meeting Link:'}</strong> <a href={approvalSuccessModal.meetingLink} target="_blank" rel="noreferrer" style={{ color: '#38bdf8', textDecoration: 'underline' }}>{approvalSuccessModal.meetingLink}</a></div>
+              )}
+            </div>
+
+            <button
+              onClick={() => setApprovalSuccessModal(null)}
+              className="btn btn-primary"
+              style={{ width: '100%', padding: '12px', borderRadius: '14px', background: 'linear-gradient(135deg, #10b981, #059669)', border: 'none', fontWeight: '800', fontSize: '12px', letterSpacing: '0.05em', color: 'white', boxShadow: '0 4px 15px rgba(16, 185, 129, 0.3)', cursor: 'pointer' }}
+            >
+              {isRTL ? 'حسناً، تم الحفظ والمزامنة' : 'Done & Sync'}
             </button>
           </div>
         </div>
