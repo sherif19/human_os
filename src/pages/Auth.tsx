@@ -167,7 +167,7 @@ export default function Auth() {
         });
       }
     } catch (err: any) {
-      let friendlyMessage = err.message;
+      let friendlyMessage = err.message || '';
       if (err.code === 'auth/user-not-found' || err.code === 'auth/wrong-password' || err.code === 'auth/invalid-credential') {
         friendlyMessage = language === 'ar'
           ? 'البريد الإلكتروني أو كلمة المرور غير صحيحة'
@@ -176,6 +176,10 @@ export default function Auth() {
         friendlyMessage = language === 'ar'
           ? 'البريد الإلكتروني مستخدم بالفعل'
           : 'Email is already in use';
+      } else if (err.code === 'auth/network-request-failed' || friendlyMessage.includes('network-request-failed') || friendlyMessage.includes('ERR_NAME_NOT_RESOLVED')) {
+        friendlyMessage = language === 'ar'
+          ? 'فشل الاتصال بالشبكة (البريد/السيرفر). يرجى التحقق من اتصال الإنترنت، إعدادات DNS، أو إيقاف أي VPN / Firewall والمحاولة مرة أخرى.'
+          : 'Network request failed. Please check your internet connection, DNS settings, or disable any active VPN/Firewall and try again.';
       } else if (friendlyMessage.includes('password')) {
         friendlyMessage = language === 'ar'
           ? 'يجب أن تتكون كلمة المرور من 6 أحرف على الأقل'
